@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: wink-murder
+    runtime: node
+    plan: free
+    region: oregon          # change to frankfurt / singapore if closer to you
+    branch: claude/multiplayer-mafia-game-iaf8r7
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

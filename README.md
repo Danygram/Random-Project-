@@ -26,9 +26,20 @@ npm start          # → http://localhost:3000
 
 Open the URL on every phone (same Wi-Fi, or deploy the server and share the public link).
 
-## Deploy
+## Deploy (get a shareable public link)
 
-It's a standard Node web service (`npm start`, respects `PORT`). Deploys as-is to **Render, Railway, Fly.io, or any Node host**. No database — games live in memory and clear when empty.
+It's a standard Node web service (`npm start`, respects `PORT`). No database — games live in memory and clear when empty.
+
+### Render (one click, free) — `render.yaml` included
+
+1. Push this repo to GitHub (done).
+2. Go to **render.com → New → Blueprint**, and connect this repo.
+3. Render reads `render.yaml`, creates the `wink-murder` web service, builds, and gives you a public URL like `https://wink-murder.onrender.com`.
+4. Open that URL on every phone — done.
+
+> **Free-plan note:** the service sleeps after ~15 min idle and the first hit takes ~30s to wake. Fine for casual play. For instant-on, bump `plan: free` → `plan: starter` in `render.yaml`. To host closer to you, change `region` (e.g. `frankfurt`, `singapore`).
+
+Also deploys as-is to **Railway, Fly.io, or any Node host**.
 
 ## Tech
 
