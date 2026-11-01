@@ -29,8 +29,7 @@ const PORT = process.env.PORT || 3000;
 // ---------------------------------------------------------------------------
 
 const REVEAL_SECONDS = 15;      // silent role-reveal window
-const JOIN_SECONDS = 20;        // "join the vote?" window
-const VOTE_SECONDS = 25;        // voters pick their suspect
+const JOIN_SECONDS = 20;        // "join the accusation?" window
 const MAX_PLAYERS = 30;
 
 // Distinct, high-contrast colors assigned to players in order.
@@ -149,16 +148,23 @@ function viewFor(game, viewerId) {
       total: game.players.length,
     },
     round: game.round
-      ? {
-          phase: game.round.phase, // 'joining' | 'voting'
-          accuserId: game.round.accuserId,
-          suspectId: game.round.suspectId,
-          endsAt: game.round.endsAt,
-          voters: game.round.voters,        // array of player ids who joined
-          youVoted: game.round.votes ? Object.prototype.hasOwnProperty.call(game.round.votes, viewerId) : false,
-          youJoined: game.round.voters.includes(viewerId),
-          youResponded: game.round.responded.includes(viewerId),
-        }
+      ? (() => {
+          const viewer = getPlayer(game, viewerId);
+          const isAccuser = viewerId === game.round.accuserId;
+          const isSuspect = viewerId === game.round.suspectId;
+          const eligible = !!(viewer && viewer.alive && !isAccuser && !isSuspect);
+          return {
+            accuserId: game.round.accuserId,
+            suspectId: game.round.suspectId,
+            endsAt: game.round.endsAt,
+            voters: game.round.voters,                 // accuser + everyone who joined
+            isAccuser,
+            isSuspect,
+            eligible,                                   // may still tap Yes/No
+            youJoined: game.round.voters.includes(viewerId),
+            youResponded: game.round.responded.includes(viewerId),
+          };
+        })()
       : null,
     players: game.players.map((p) => ({
       id: p.id,
@@ -223,96 +229,59 @@ function endGame(game, winner, reason) {
 // Accusation / voting round
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve the accusation. The accuser named ONE suspect; everyone who joined
+ * is backing that single accusation.
+ *   - Suspect is a murderer  -> that murderer is caught & removed.
+ *   - Suspect is innocent     -> ONLY the accusers (accuser + joiners) are out.
+ * The named suspect is never "swept" by a wrong guess, and sit-outs are safe.
+ */
 function resolveRound(game) {
   const round = game.round;
   if (!round) return;
   clearTimeout(game.timers.round);
 
+  const suspect = getPlayer(game, round.suspectId);
   const voterIds = round.voters;
-  // Tally votes among people who actually voted.
-  const tally = {};
-  for (const voterId of voterIds) {
-    const target = round.votes[voterId];
-    if (target) tally[target] = (tally[target] || 0) + 1;
-  }
 
-  let topTarget = null;
-  let topCount = -1;
-  let tie = false;
-  for (const [target, count] of Object.entries(tally)) {
-    if (count > topCount) {
-      topTarget = target; topCount = count; tie = false;
-    } else if (count === topCount) {
-      tie = true;
-    }
-  }
-
-  const voterNames = voterIds.map((id) => getPlayer(game, id)?.name).filter(Boolean).join(', ');
-
-  // No votes cast, or a tie with no clear target → round fizzles, nobody out.
-  if (!topTarget || topCount <= 0 || tie) {
-    pushLog(game, `🤷 The vote (${voterNames || 'no one'}) reached no majority. No one is eliminated.`);
-    game.round = null;
-    game.phase = 'playing';
-    broadcast(game);
-    return;
-  }
-
-  const accused = getPlayer(game, topTarget);
   game.round = null;
   game.phase = 'playing';
 
-  if (accused && accused.role === 'murderer') {
-    // Correct! The murderer is caught and removed.
-    accused.alive = false;
-    pushLog(game, `✅ The vote convicted ${accused.name} — a MURDERER! Caught and eliminated.`);
-    if (!checkWin(game)) {
-      pushLog(game, 'A murderer remains. The game continues.');
-      broadcast(game);
-    } else {
-      broadcast(game);
-    }
-    return;
-  }
-
-  // Wrong! Everyone who joined the vote is eliminated.
-  for (const id of voterIds) {
-    const p = getPlayer(game, id);
-    if (p) p.alive = false;
-  }
-  pushLog(game, `❌ ${accused ? accused.name : 'The accused'} was INNOCENT. The voters (${voterNames}) are eliminated.`);
-  if (!checkWin(game)) broadcast(game);
-  else broadcast(game);
-}
-
-function maybeCloseJoinWindow(game) {
-  const round = game.round;
-  if (!round || round.phase !== 'joining') return;
-  // All alive players (except those who already responded) still pending?
-  const aliveIds = alivePlayers(game).map((p) => p.id);
-  const pending = aliveIds.filter((id) => !round.responded.includes(id));
-  if (pending.length === 0) startVotingPhase(game);
-}
-
-function startVotingPhase(game) {
-  const round = game.round;
-  if (!round) return;
-  clearTimeout(game.timers.round);
-
-  if (round.voters.length === 0) {
-    pushLog(game, '🤷 No one joined the vote. Nothing happens — play on.');
-    game.round = null;
-    game.phase = 'playing';
+  if (suspect && suspect.alive && suspect.role === 'murderer') {
+    // Correct! The accused really is a murderer — caught and removed.
+    suspect.alive = false;
+    pushLog(game, `✅ ${suspect.name} was accused and is a MURDERER — caught and eliminated!`);
+    if (!checkWin(game)) pushLog(game, 'A murderer remains. The game continues.');
     broadcast(game);
     return;
   }
 
-  round.phase = 'voting';
-  round.votes = {};
-  round.endsAt = Date.now() + VOTE_SECONDS * 1000;
-  pushLog(game, `🗳️ Voting has started — ${round.voters.length} voter(s) choose a suspect.`);
-  game.timers.round = setTimeout(() => resolveRound(game), VOTE_SECONDS * 1000);
+  // Wrong! The accused was innocent. Only the INNOCENT accusers are eliminated —
+  // a murderer who recklessly joined is NOT swept in, so a wrong guess can never
+  // hand the innocents a win. The real murderer stays hidden and in play.
+  const eliminated = [];
+  for (const id of voterIds) {
+    const pl = getPlayer(game, id);
+    if (pl && pl.role !== 'murderer') { pl.alive = false; eliminated.push(pl.name); }
+  }
+  if (eliminated.length) {
+    pushLog(game, `❌ ${suspect ? suspect.name : 'The accused'} was INNOCENT. Wrong accusers eliminated: ${eliminated.join(', ')}. The murderer is still out there.`);
+  } else {
+    pushLog(game, `❌ ${suspect ? suspect.name : 'The accused'} was INNOCENT — no innocent accusers to eliminate. The murderer is still among you.`);
+  }
+  checkWin(game);
   broadcast(game);
+}
+
+/** Close the join window early once every eligible player has responded. */
+function maybeCloseJoinWindow(game) {
+  const round = game.round;
+  if (!round) return;
+  const eligibleIds = alivePlayers(game)
+    .map((p) => p.id)
+    .filter((id) => id !== round.accuserId && id !== round.suspectId);
+  const pending = eligibleIds.filter((id) => !round.responded.includes(id));
+  if (pending.length === 0) resolveRound(game);
 }
 
 // ---------------------------------------------------------------------------
@@ -427,62 +396,50 @@ io.on('connection', (socket) => {
     else broadcast(game);
   });
 
-  // --- Raise hand → open an accusation round ------------------------------
-  socket.on('raise_hand', () => {
+  // --- Raise hand → name ONE suspect → open an accusation round -----------
+  socket.on('raise_hand', ({ suspectId }) => {
     const game = findGameBySocket(socket.id);
     if (!game || game.phase !== 'playing') return;
     const accuser = getPlayer(game, socket.id);
     if (!accuser || !accuser.alive) return;
+    const suspect = getPlayer(game, suspectId);
+    if (!suspect || !suspect.alive || suspect.id === accuser.id) {
+      socket.emit('toast', { type: 'error', text: 'Pick a living player other than yourself to accuse.' });
+      return;
+    }
 
     game.phase = 'accusation';
     game.round = {
-      phase: 'joining',
       accuserId: accuser.id,
-      suspectId: null,
-      voters: [accuser.id],      // the accuser is automatically a voter
-      responded: [accuser.id],   // accuser doesn't need the yes/no prompt
-      votes: {},
+      suspectId: suspect.id,
+      voters: [accuser.id],      // the accuser is automatically backing it
+      responded: [accuser.id],   // accuser doesn't get the yes/no prompt
       endsAt: Date.now() + JOIN_SECONDS * 1000,
     };
-    pushLog(game, `🙋 ${accuser.name} raised a hand! Everyone: join the vote?`);
+    pushLog(game, `🙋 ${accuser.name} accuses ${suspect.name}! Join the vote?`);
     broadcast(game);
 
     clearTimeout(game.timers.round);
-    game.timers.round = setTimeout(() => startVotingPhase(game), JOIN_SECONDS * 1000);
+    game.timers.round = setTimeout(() => resolveRound(game), JOIN_SECONDS * 1000);
   });
 
   // --- Respond to the join prompt (yes/no) --------------------------------
   socket.on('join_vote', ({ join }) => {
     const game = findGameBySocket(socket.id);
-    if (!game || game.phase !== 'accusation' || !game.round || game.round.phase !== 'joining') return;
+    if (!game || game.phase !== 'accusation' || !game.round) return;
     const p = getPlayer(game, socket.id);
     if (!p || !p.alive) return;
+    // The accuser and the accused don't vote on this accusation.
+    if (p.id === game.round.accuserId || p.id === game.round.suspectId) return;
     if (game.round.responded.includes(p.id)) return;
 
     game.round.responded.push(p.id);
     if (join && !game.round.voters.includes(p.id)) {
       game.round.voters.push(p.id);
-      pushLog(game, `✋ ${p.name} joined the vote.`);
+      pushLog(game, `✋ ${p.name} joined the accusation.`);
     }
     broadcast(game);
     maybeCloseJoinWindow(game);
-  });
-
-  // --- Cast a vote for a suspect ------------------------------------------
-  socket.on('cast_vote', ({ targetId }) => {
-    const game = findGameBySocket(socket.id);
-    if (!game || game.phase !== 'accusation' || !game.round || game.round.phase !== 'voting') return;
-    const voter = getPlayer(game, socket.id);
-    if (!voter || !voter.alive || !game.round.voters.includes(voter.id)) return;
-    const target = getPlayer(game, targetId);
-    if (!target || !target.alive) return;
-
-    game.round.votes[voter.id] = targetId;
-    broadcast(game);
-
-    // If every voter has voted, resolve early.
-    const allVoted = game.round.voters.every((id) => Object.prototype.hasOwnProperty.call(game.round.votes, id));
-    if (allVoted) resolveRound(game);
   });
 
   // --- Host resets to a fresh lobby (same players, new game) --------------

@@ -70,7 +70,24 @@
     if (confirm('Confirm you were killed? You will be out of the game.')) socket.emit('report_death');
   };
   $('btn-raise').onclick = () => {
-    if (confirm('Raise your hand and start a vote? Everyone will be asked to join.')) socket.emit('raise_hand');
+    // Open the suspect picker — you must point at one person.
+    $('raise-actions').classList.add('hidden');
+    $('accuse-picker').classList.remove('hidden');
+    const meId = me() && me().id;
+    const candidates = state.players.filter((p) => p.alive && p.id !== meId);
+    $('accuse-picker-players').innerHTML = candidates.map((p) => playerCard(p, { selectable: true })).join('');
+    $('accuse-picker-players').querySelectorAll('.player.selectable').forEach((el) => {
+      el.onclick = () => {
+        const nm = el.querySelector('.pname').textContent;
+        if (confirm(`Accuse ${nm} of being the murderer? Everyone will be asked to join you.`)) {
+          socket.emit('raise_hand', { suspectId: el.dataset.id });
+        }
+      };
+    });
+  };
+  $('btn-cancel-raise').onclick = () => {
+    $('accuse-picker').classList.add('hidden');
+    $('raise-actions').classList.remove('hidden');
   };
 
   // ---------------- accusation ----------------
@@ -175,55 +192,49 @@
     const alive = p && p.alive;
     $('alive-block').classList.toggle('hidden', !alive);
     $('dead-block').classList.toggle('hidden', alive);
+    // reset the raise/accuse picker to its default state each time
+    $('accuse-picker').classList.add('hidden');
+    $('raise-actions').classList.remove('hidden');
 
     $('play-players').innerHTML = state.players.map((p) => playerCard(p)).join('');
     $('play-feed').innerHTML = state.log.slice(0, 8).map((l) => `<div class="feed-item">${escapeHtml(l.text)}</div>`).join('');
   }
 
-  // ---- accusation ----
+  // ---- accusation (single join window; accuser already named the suspect) ----
   function renderAccuse() {
     const r = state.round;
     if (!r) return;
     const accuser = state.players.find((p) => p.id === r.accuserId);
+    const suspect = state.players.find((p) => p.id === r.suspectId);
     const p = me();
     const alive = p && p.alive;
 
-    ['join-block', 'join-waiting', 'vote-block', 'vote-waiting', 'bystander-block'].forEach((id) => $(id).classList.add('hidden'));
+    ['join-block', 'join-waiting', 'suspect-block', 'bystander-block'].forEach((id) => $(id).classList.add('hidden'));
 
-    if (r.phase === 'joining') {
-      $('accuse-title').textContent = `🙋 ${accuser ? accuser.name : 'Someone'} raised a hand!`;
-      $('accuse-sub').textContent = 'Join the vote to help catch the murderer — or sit out and stay safe.';
-      if (!alive) {
-        $('bystander-block').classList.remove('hidden');
-        $('bystander-block').textContent = 'You are out — watching this vote.';
-      } else if (r.youResponded) {
-        $('join-waiting').classList.remove('hidden');
-        $('join-tally').textContent = `${r.voters.length} joined so far.`;
-      } else {
-        $('join-block').classList.remove('hidden');
-      }
-    } else if (r.phase === 'voting') {
-      $('accuse-title').textContent = '🗳️ Vote now';
-      $('accuse-sub').textContent = `${r.voters.length} voter(s). Wrong guess = all voters are out.`;
-      if (r.youJoined && alive) {
-        if (r.youVoted) {
-          $('vote-waiting').classList.remove('hidden');
-        } else {
-          $('vote-block').classList.remove('hidden');
-          const candidates = state.players.filter((pl) => pl.alive);
-          $('vote-players').innerHTML = candidates.map((pl) => playerCard(pl, { selectable: true })).join('');
-          $('vote-players').querySelectorAll('.player.selectable').forEach((el) => {
-            el.onclick = () => {
-              if (confirm(`Vote for ${el.querySelector('.pname').textContent.replace(' (you)', '')} as the murderer?`)) {
-                socket.emit('cast_vote', { targetId: el.dataset.id });
-              }
-            };
-          });
-        }
-      } else {
-        $('bystander-block').classList.remove('hidden');
-        $('bystander-block').textContent = alive ? 'You sat this one out. Watching the vote…' : 'You are out — watching this vote.';
-      }
+    // Accused card
+    if (suspect) {
+      $('accused-dot').style.background = suspect.color ? suspect.color.hex : '#888';
+      $('accused-name').textContent = suspect.name;
+      $('accused-by').textContent = `accused by ${accuser ? accuser.name : 'someone'}`;
+    }
+    $('accuse-title').textContent = '🙋 An accusation!';
+    $('accuse-sub').textContent = `${r.voters.length} backing it so far. Decide fast.`;
+
+    if (r.isSuspect) {
+      // You are the one being accused — you can't vote on yourself.
+      $('suspect-block').classList.remove('hidden');
+      $('suspect-block').innerHTML = `<b>You've been accused!</b><br>Keep your cool — if you're innocent, the accusers go down, not you.`;
+    } else if (r.isAccuser) {
+      $('join-waiting').classList.remove('hidden');
+      $('join-waiting').innerHTML = `You accused <b>${suspect ? suspect.name : '—'}</b>. Waiting for others to join…`;
+    } else if (!alive) {
+      $('bystander-block').classList.remove('hidden');
+      $('bystander-block').textContent = 'You are out — watching this accusation.';
+    } else if (r.youResponded) {
+      $('join-waiting').classList.remove('hidden');
+      $('join-waiting').textContent = r.youJoined ? 'You joined. Waiting for the window to close…' : 'You sat out. Watching it play out…';
+    } else {
+      $('join-block').classList.remove('hidden');
     }
   }
 
@@ -249,8 +260,7 @@
       if (state.phase === 'reveal' && state.revealEndsAt) {
         updateRing($('reveal-timer'), state.revealEndsAt, 15);
       } else if (state.phase === 'accusation' && state.round && state.round.endsAt) {
-        const total = state.round.phase === 'joining' ? 20 : 25;
-        updateRing($('accuse-timer'), state.round.endsAt, total);
+        updateRing($('accuse-timer'), state.round.endsAt, 20);
       } else {
         return; // nothing to animate
       }

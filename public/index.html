@@ -94,11 +94,19 @@
       </header>
 
       <div id="alive-block">
-        <div class="big-actions">
-          <button class="btn danger huge" id="btn-dead">I was killed ✖️</button>
-          <button class="btn warn huge" id="btn-raise">🙋 Raise hand</button>
+        <div id="raise-actions">
+          <div class="big-actions">
+            <button class="btn danger huge" id="btn-dead">I was killed ✖️</button>
+            <button class="btn warn huge" id="btn-raise">🙋 Raise hand</button>
+          </div>
+          <p class="muted center small">Winked at you? Cross your arms and tap <b>I was killed</b>. Saw the wink? <b>Raise your hand</b> and point at the murderer.</p>
         </div>
-        <p class="muted center small">Winked at you? Cross your arms and tap <b>I was killed</b>. Saw the wink? <b>Raise your hand</b> to start a vote.</p>
+        <div id="accuse-picker" class="hidden">
+          <p class="center" style="margin:6px 0 2px"><b>Who did you see wink?</b></p>
+          <p class="muted center small">Tap the person you're accusing. If you're wrong, everyone who joins you is out.</p>
+          <div class="players-grid compact" id="accuse-picker-players"></div>
+          <button class="btn ghost" id="btn-cancel-raise">Cancel</button>
+        </div>
       </div>
 
       <div id="dead-block" class="dead-banner hidden">
@@ -115,28 +123,29 @@
     <section class="screen" id="screen-accuse">
       <div class="accuse-head">
         <div class="timer-ring small" id="accuse-timer">20</div>
-        <h2 id="accuse-title">A hand is up!</h2>
+        <h2 id="accuse-title">An accusation!</h2>
         <p class="muted" id="accuse-sub"></p>
       </div>
 
-      <!-- Join prompt -->
+      <div class="accused-card" id="accused-card">
+        <span class="dot" id="accused-dot"></span>
+        <div style="min-width:0">
+          <div class="accused-name" id="accused-name">—</div>
+          <div class="muted small" id="accused-by"></div>
+        </div>
+      </div>
+
+      <!-- Join prompt (shown to eligible players only) -->
       <div id="join-block" class="hidden">
-        <p class="center">Do you want to join the vote?</p>
-        <p class="muted center small">If you're wrong about the murderer, everyone who joins is eliminated.</p>
+        <p class="muted center small">Back this accusation? If the accused is innocent, everyone who joins is eliminated. Sit out and you're safe.</p>
         <div class="big-actions">
           <button class="btn ok huge" id="btn-join-yes">Yes, I'm in</button>
           <button class="btn ghost huge" id="btn-join-no">No, sit out</button>
         </div>
       </div>
-      <div id="join-waiting" class="hidden muted center">Waiting for others to decide… <span id="join-tally"></span></div>
-
-      <!-- Voting -->
-      <div id="vote-block" class="hidden">
-        <p class="center">Tap the person you believe is the murderer.</p>
-        <div class="players-grid" id="vote-players"></div>
-      </div>
-      <div id="vote-waiting" class="hidden muted center">Vote cast. Waiting for the others…</div>
-      <div id="bystander-block" class="hidden muted center">You sat this one out. Watching the vote play out…</div>
+      <div id="join-waiting" class="hidden muted center"></div>
+      <div id="suspect-block" class="hidden muted center"></div>
+      <div id="bystander-block" class="hidden muted center"></div>
     </section>
 
     <!-- =================== END =================== -->
