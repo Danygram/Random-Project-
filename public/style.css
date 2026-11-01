@@ -1,0 +1,241 @@
+:root {
+  --bg: #0b0b12;
+  --bg-2: #14141f;
+  --card: #1b1b28;
+  --card-2: #232333;
+  --line: #2e2e40;
+  --text: #f3f3f8;
+  --muted: #9a9ab0;
+  --accent: #8b5cf6;
+  --accent-2: #a855f7;
+  --danger: #ef4444;
+  --warn: #f59e0b;
+  --ok: #22c55e;
+  --radius: 18px;
+  --maxw: 520px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  background: radial-gradient(1200px 600px at 50% -10%, #1d1630 0%, var(--bg) 55%);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  min-height: 100%;
+}
+
+#app {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 20px 16px 48px;
+  min-height: 100vh;
+}
+
+h1, h2 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.02em; }
+h1 { font-size: 2rem; margin: 0; }
+h2 { font-size: 1.25rem; margin: 0; }
+
+.screen { display: none; animation: fade 0.28s ease; }
+.screen.active { display: block; }
+@keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.hidden { display: none !important; }
+.center { text-align: center; }
+.muted { color: var(--muted); }
+.small { font-size: 0.85rem; }
+.eyebrow { font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.footnote { color: var(--muted); font-size: 0.85rem; margin-top: 18px; }
+
+/* ---------- Hero / home ---------- */
+.hero { text-align: center; padding: 18px 0 20px; }
+.logo { font-size: 3.2rem; filter: drop-shadow(0 6px 18px rgba(139, 92, 246, 0.4)); }
+.tagline { color: var(--muted); margin: 6px 0 0; }
+
+.card {
+  background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin: 14px 0;
+  box-shadow: 0 20px 50px -30px rgba(0, 0, 0, 0.8);
+}
+
+.field { display: block; margin-bottom: 14px; }
+.field > span { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; }
+
+input {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 1.05rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2); }
+.code-input { text-transform: uppercase; letter-spacing: 0.4em; text-align: center; font-weight: 700; font-size: 1.4rem; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.08s ease, filter 0.15s, background 0.15s;
+  font-family: inherit;
+}
+.btn:active { transform: scale(0.97); }
+.btn.big { padding: 16px; font-size: 1.05rem; margin-top: 4px; }
+.btn.huge { padding: 20px; font-size: 1.15rem; }
+.btn.primary { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%); border: none; color: white; }
+.btn.danger { background: linear-gradient(135deg, #ef4444, #dc2626); border: none; color: white; }
+.btn.warn { background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: #1a1205; }
+.btn.ok { background: linear-gradient(135deg, #22c55e, #16a34a); border: none; color: #04210f; }
+.btn.ghost { background: transparent; }
+.btn.small { width: auto; padding: 8px 14px; font-size: 0.85rem; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.8rem; margin: 16px 0; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+.err { color: var(--danger); font-size: 0.88rem; min-height: 1em; margin: 10px 0 0; text-align: center; }
+
+/* ---------- Topbar ---------- */
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.code-display { font-family: 'Space Grotesk'; font-size: 2rem; font-weight: 700; letter-spacing: 0.3em; }
+
+/* ---------- Players grid ---------- */
+.players-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 14px 0; }
+.players-grid.compact { grid-template-columns: repeat(3, 1fr); }
+.player {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  position: relative;
+  transition: opacity 0.2s, filter 0.2s;
+}
+.players-grid.compact .player { flex-direction: column; text-align: center; gap: 6px; padding: 12px 6px; }
+.dot { width: 22px; height: 22px; border-radius: 50%; flex: none; box-shadow: 0 0 0 3px rgba(255,255,255,0.06); }
+.players-grid.compact .dot { width: 30px; height: 30px; }
+.pname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.players-grid.compact .pname { font-size: 0.9rem; }
+.badge { position: absolute; top: 6px; right: 8px; font-size: 0.65rem; color: var(--muted); }
+.player.dead { opacity: 0.4; filter: grayscale(0.8); }
+.player.dead::after { content: '💀'; position: absolute; right: 8px; font-size: 1.1rem; }
+.players-grid.compact .player.dead::after { top: 6px; right: 6px; }
+.player.you { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(139,92,246,0.3); }
+.player.host-tag .pname::after { content: ' 👑'; }
+.player.selectable { cursor: pointer; }
+.player.selectable:active { transform: scale(0.96); }
+.player.offline { opacity: 0.5; }
+
+/* ---------- Stepper ---------- */
+.stepper { display: flex; align-items: center; gap: 14px; }
+.btn.step { width: 52px; height: 52px; font-size: 1.5rem; border-radius: 12px; display: flex; align-items: center; justify-content: center; padding: 0; }
+.stepper-val { font-family: 'Space Grotesk'; font-size: 1.8rem; font-weight: 700; min-width: 40px; text-align: center; }
+
+/* ---------- Reveal / role card ---------- */
+.reveal-head { text-align: center; margin: 10px 0 26px; }
+.reveal-head h2 { margin-top: 18px; font-size: 1.1rem; }
+.timer-ring {
+  width: 86px; height: 86px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: 'Space Grotesk'; font-size: 2rem; font-weight: 700;
+  background: conic-gradient(var(--accent) var(--deg, 360deg), var(--line) 0);
+  position: relative;
+}
+.timer-ring::before { content: ''; position: absolute; inset: 6px; border-radius: 50%; background: var(--bg); }
+.timer-ring span, .timer-ring { position: relative; }
+.timer-ring { color: var(--text); }
+.timer-ring.small { width: 64px; height: 64px; font-size: 1.4rem; }
+
+.role-card-wrap { perspective: 1200px; display: flex; justify-content: center; margin: 10px 0; }
+.role-card {
+  width: 260px; height: 360px; position: relative;
+  transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(.2,.8,.2,1);
+  cursor: pointer;
+}
+.role-card.flipped { transform: rotateY(180deg); }
+.role-face {
+  position: absolute; inset: 0; backface-visibility: hidden;
+  border-radius: 22px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center;
+  border: 1px solid var(--line);
+}
+.role-back {
+  background: repeating-linear-gradient(45deg, #1c1430, #1c1430 12px, #221838 12px, #221838 24px);
+  box-shadow: 0 30px 60px -30px rgba(139,92,246,0.5);
+}
+.role-back .q { font-size: 5rem; font-family: 'Space Grotesk'; color: var(--accent); }
+.tap-hint { color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.75rem; }
+.role-front { transform: rotateY(180deg); }
+.role-front.murderer { background: linear-gradient(160deg, #3b0d12, #7f1d1d); box-shadow: 0 30px 60px -30px rgba(239,68,68,0.6); }
+.role-front.innocent { background: linear-gradient(160deg, #0d2a1a, #14532d); box-shadow: 0 30px 60px -30px rgba(34,197,94,0.6); }
+.role-emoji { font-size: 4.5rem; }
+.role-name { font-family: 'Space Grotesk'; font-size: 1.8rem; font-weight: 700; }
+.role-desc { color: rgba(255,255,255,0.85); font-size: 0.92rem; line-height: 1.4; }
+
+/* ---------- Playing ---------- */
+.role-pill { font-weight: 700; padding: 8px 14px; border-radius: 999px; font-size: 0.9rem; }
+.role-pill.murderer { background: rgba(239,68,68,0.18); color: #fca5a5; border: 1px solid rgba(239,68,68,0.4); }
+.role-pill.innocent { background: rgba(34,197,94,0.18); color: #86efac; border: 1px solid rgba(34,197,94,0.4); }
+.counts { font-size: 0.82rem; color: var(--muted); text-align: right; line-height: 1.3; }
+.counts b { color: var(--text); }
+
+.big-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0; }
+#join-block .big-actions, #vote-block .big-actions { grid-template-columns: 1fr 1fr; }
+
+.dead-banner {
+  background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+  border-radius: var(--radius); padding: 18px; text-align: center; margin: 12px 0;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.dead-emoji { font-size: 2.4rem; }
+
+.feed { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.feed-item { font-size: 0.85rem; color: var(--muted); padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.feed-item:first-child { color: var(--text); }
+
+/* ---------- Accusation ---------- */
+.accuse-head { text-align: center; margin: 10px 0 22px; }
+.accuse-head h2 { margin-top: 14px; }
+#accuse-sub { margin-top: 6px; }
+
+/* ---------- End ---------- */
+.end-hero { text-align: center; padding: 24px 0; }
+.end-emoji { font-size: 4rem; }
+.end-hero.innocents h1 { color: #86efac; }
+.end-hero.murderers h1 { color: #fca5a5; }
+.reveal-all .role-mini { font-size: 0.7rem; margin-top: 2px; }
+.role-mini.murderer { color: #fca5a5; }
+.role-mini.innocent { color: #86efac; }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(120%);
+  background: var(--card-2); border: 1px solid var(--line); color: var(--text);
+  padding: 12px 20px; border-radius: 999px; font-size: 0.9rem; font-weight: 600;
+  box-shadow: 0 20px 40px -20px rgba(0,0,0,0.9); transition: transform 0.3s ease; z-index: 100;
+  max-width: 90vw; text-align: center;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.error { border-color: var(--danger); }
+.toast.ok { border-color: var(--ok); }
+
+@media (max-width: 380px) {
+  .players-grid { grid-template-columns: 1fr; }
+  .role-card { width: 230px; height: 320px; }
+}

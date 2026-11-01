@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#0b0b12" />
+  <title>Wink Murder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- =================== HOME =================== -->
+    <section class="screen active" id="screen-home">
+      <div class="hero">
+        <div class="logo">🔪</div>
+        <h1>Wink Murder</h1>
+        <p class="tagline">A wink kills. A stare catches. Trust no one.</p>
+      </div>
+      <div class="card">
+        <label class="field">
+          <span>Your name</span>
+          <input id="home-name" maxlength="20" placeholder="e.g. Daniel" autocomplete="off" />
+        </label>
+        <button class="btn primary big" id="btn-create">Host a new game</button>
+        <div class="divider"><span>or</span></div>
+        <label class="field">
+          <span>Game code</span>
+          <input id="home-code" maxlength="4" placeholder="ABCD" autocomplete="off" class="code-input" />
+        </label>
+        <button class="btn big" id="btn-join">Join game</button>
+        <p class="err" id="home-err"></p>
+      </div>
+      <p class="footnote">Gather everyone in one room. One phone each.</p>
+    </section>
+
+    <!-- =================== LOBBY =================== -->
+    <section class="screen" id="screen-lobby">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Game code</div>
+          <div class="code-display" id="lobby-code">----</div>
+        </div>
+        <button class="btn ghost small" id="btn-leave">Leave</button>
+      </header>
+      <div class="muted center" id="lobby-hint">Share the code. Waiting for players…</div>
+
+      <div class="players-grid" id="lobby-players"></div>
+
+      <div class="card host-only" id="host-config">
+        <label class="field">
+          <span>Number of murderers</span>
+          <div class="stepper">
+            <button class="btn step" id="murderer-minus">−</button>
+            <div class="stepper-val" id="murderer-count">1</div>
+            <button class="btn step" id="murderer-plus">+</button>
+          </div>
+        </label>
+        <p class="muted small" id="balance-hint"></p>
+        <button class="btn primary big" id="btn-start">Start game</button>
+      </div>
+      <div class="muted center waiting-only" id="waiting-note">Waiting for the host to start…</div>
+    </section>
+
+    <!-- =================== REVEAL =================== -->
+    <section class="screen" id="screen-reveal">
+      <div class="reveal-head">
+        <div class="timer-ring" id="reveal-timer">15</div>
+        <h2>Tap your card. Memorise it. Say nothing.</h2>
+      </div>
+      <div class="role-card-wrap">
+        <div class="role-card" id="role-card">
+          <div class="role-face role-back">
+            <div class="q">?</div>
+            <div class="tap-hint">Tap to reveal</div>
+          </div>
+          <div class="role-face role-front" id="role-front">
+            <div class="role-emoji" id="role-emoji">🙂</div>
+            <div class="role-name" id="role-name">—</div>
+            <div class="role-desc" id="role-desc"></div>
+          </div>
+        </div>
+      </div>
+      <p class="footnote center">Roles lock when the timer hits zero.</p>
+    </section>
+
+    <!-- =================== PLAYING =================== -->
+    <section class="screen" id="screen-play">
+      <header class="topbar">
+        <div class="role-pill" id="play-role-pill">—</div>
+        <div class="counts" id="play-counts"></div>
+      </header>
+
+      <div id="alive-block">
+        <div class="big-actions">
+          <button class="btn danger huge" id="btn-dead">I was killed ✖️</button>
+          <button class="btn warn huge" id="btn-raise">🙋 Raise hand</button>
+        </div>
+        <p class="muted center small">Winked at you? Cross your arms and tap <b>I was killed</b>. Saw the wink? <b>Raise your hand</b> to start a vote.</p>
+      </div>
+
+      <div id="dead-block" class="dead-banner hidden">
+        <div class="dead-emoji">💀</div>
+        <div>You're out. Keep a straight face — watch the chaos unfold.</div>
+      </div>
+
+      <div class="players-grid compact" id="play-players"></div>
+
+      <div class="feed" id="play-feed"></div>
+    </section>
+
+    <!-- =================== ACCUSATION =================== -->
+    <section class="screen" id="screen-accuse">
+      <div class="accuse-head">
+        <div class="timer-ring small" id="accuse-timer">20</div>
+        <h2 id="accuse-title">A hand is up!</h2>
+        <p class="muted" id="accuse-sub"></p>
+      </div>
+
+      <!-- Join prompt -->
+      <div id="join-block" class="hidden">
+        <p class="center">Do you want to join the vote?</p>
+        <p class="muted center small">If you're wrong about the murderer, everyone who joins is eliminated.</p>
+        <div class="big-actions">
+          <button class="btn ok huge" id="btn-join-yes">Yes, I'm in</button>
+          <button class="btn ghost huge" id="btn-join-no">No, sit out</button>
+        </div>
+      </div>
+      <div id="join-waiting" class="hidden muted center">Waiting for others to decide… <span id="join-tally"></span></div>
+
+      <!-- Voting -->
+      <div id="vote-block" class="hidden">
+        <p class="center">Tap the person you believe is the murderer.</p>
+        <div class="players-grid" id="vote-players"></div>
+      </div>
+      <div id="vote-waiting" class="hidden muted center">Vote cast. Waiting for the others…</div>
+      <div id="bystander-block" class="hidden muted center">You sat this one out. Watching the vote play out…</div>
+    </section>
+
+    <!-- =================== END =================== -->
+    <section class="screen" id="screen-end">
+      <div class="end-hero" id="end-hero">
+        <div class="end-emoji" id="end-emoji">🏆</div>
+        <h1 id="end-title">Winners</h1>
+        <p id="end-reason" class="muted"></p>
+      </div>
+      <div class="players-grid reveal-all" id="end-players"></div>
+      <button class="btn primary big host-only" id="btn-again">Play again (same crew)</button>
+      <button class="btn big waiting-only" id="btn-home">Back to home</button>
+    </section>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
