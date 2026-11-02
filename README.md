@@ -1,8 +1,17 @@
-# 🔪 Wink Murder
+# 🎭 Party Games
 
-A real-time **online companion** for the in-person "wink assassin" party game — a twist on Mafia. Everyone's in one room with their own phone. The app handles roles, deaths, accusations, voting and win conditions; the **winking and killing happen physically** in the room.
+Real-time **online companions** for in-person party games. Everyone's in one room with their own phone; the app handles roles, secrets, voting and win conditions while the talking happens out loud. One shared lobby — the **host picks which game**:
 
-## How to play
+- **🔪 Wink Murder** — a twist on Mafia (wink to kill, raise a hand to accuse).
+- **🕵️ Word Impostor** — everyone gets a secret word; one person is the impostor who gets none. Find them.
+
+---
+
+## Game 1 — 🔪 Wink Murder
+
+The app handles roles, deaths, accusations, voting and win conditions; the **winking and killing happen physically** in the room.
+
+### How to play
 
 | Step | What happens |
 |------|-------------|
@@ -16,6 +25,30 @@ A real-time **online companion** for the in-person "wink assassin" party game �
 ### Win conditions
 - **Innocents win** when all murderers are caught/eliminated.
 - **Murderers win** when murderers ≥ innocents remaining.
+
+---
+
+## Game 2 — 🕵️ Word Impostor
+
+Everyone gets the **same secret word** — except the **impostor(s)**, who get **no word** (just told they're the impostor). Players give one-word clues out loud; the impostor bluffs. Then everyone votes.
+
+### Setup (host, in the lobby)
+- Pick **Word Impostor**, then a **variant**:
+  - **Categories** — choose **≥ 3 of 6** categories (Animals, Food & Drink, Places, Sports, Movies & TV, Jobs). The system draws the crew word from one. Optional toggle: **tell the impostor the category** (so they can bluff).
+  - **Custom** — set **words per person (3 or 5)**; every player secretly submits their words, and the crew word is drawn from that pool.
+- Set the **number of impostors (1–2)**.
+
+### How to play
+| Step | What happens |
+|------|-------------|
+| **1. Reveal** | Each player taps their card: crew see **the word**; the impostor sees **"IMPOSTOR"** (+ category if enabled). |
+| **2. Discuss** | Out loud, everyone gives a one-word clue that fits the word. The impostor fakes it. Host advances **rounds** and taps **Proceed to voting** when ready. |
+| **3. Vote** | Everyone taps who they think the impostor is. |
+| **4. Reveal** | The most-voted player is ejected. The word, the impostor(s), and the category (or **who suggested the word** in Custom) are revealed. |
+
+### Win conditions
+- **Crew win** if the single most-voted player **is an impostor**.
+- **Impostors win** on a wrong pick **or a tie**.
 
 ## Run it
 

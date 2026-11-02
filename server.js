@@ -64,6 +64,31 @@ const COLORS = [
   { name: 'Slate',   hex: '#64748b' },
 ];
 
+// Word bank for the "Word Impostor" game. Host picks >= 3 categories; the
+// system draws one word from one of them as the crew word.
+const IMPOSTOR_CATEGORIES = [
+  { id: 'animals', name: 'Animals', emoji: '🐾',
+    words: ['Lion', 'Tiger', 'Elephant', 'Giraffe', 'Penguin', 'Dolphin', 'Kangaroo', 'Octopus', 'Panda', 'Eagle', 'Wolf', 'Rabbit', 'Crocodile', 'Horse', 'Owl'] },
+  { id: 'food', name: 'Food & Drink', emoji: '🍔',
+    words: ['Pizza', 'Burger', 'Sushi', 'Pasta', 'Tacos', 'Pancakes', 'Ice Cream', 'Coffee', 'Chocolate', 'Biryani', 'Noodles', 'Salad', 'Donut', 'Mango', 'Cheese'] },
+  { id: 'places', name: 'Places', emoji: '🌍',
+    words: ['Beach', 'Mountain', 'Paris', 'Desert', 'Airport', 'Hospital', 'Library', 'Stadium', 'Jungle', 'Museum', 'Market', 'Island', 'Castle', 'School', 'Zoo'] },
+  { id: 'sports', name: 'Sports', emoji: '⚽',
+    words: ['Football', 'Cricket', 'Tennis', 'Basketball', 'Swimming', 'Boxing', 'Golf', 'Hockey', 'Cycling', 'Chess', 'Badminton', 'Skiing', 'Surfing', 'Wrestling', 'Archery'] },
+  { id: 'screen', name: 'Movies & TV', emoji: '🎬',
+    words: ['Titanic', 'Avatar', 'Batman', 'Friends', 'Avengers', 'Harry Potter', 'Frozen', 'Squid Game', 'Jurassic Park', 'Spider-Man', 'Inception', 'The Lion King', 'Breaking Bad', 'Star Wars', 'Money Heist'] },
+  { id: 'jobs', name: 'Jobs', emoji: '💼',
+    words: ['Doctor', 'Teacher', 'Pilot', 'Chef', 'Firefighter', 'Police Officer', 'Engineer', 'Farmer', 'Artist', 'Lawyer', 'Nurse', 'Astronaut', 'Barber', 'Journalist', 'Electrician'] },
+];
+const CATEGORY_BY_ID = Object.fromEntries(IMPOSTOR_CATEGORIES.map((c) => [c.id, c]));
+
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
 // ---------------------------------------------------------------------------
 // In-memory store
 // ---------------------------------------------------------------------------
@@ -83,16 +108,35 @@ function makeCode() {
 
 const makePid = () => crypto.randomUUID();
 
+function defaultImpostor() {
+  return {
+    variant: 'categories',   // 'categories' | 'custom'
+    categories: [],          // selected category ids (>= 3 for categories mode)
+    revealCategory: true,    // tell the impostor the category
+    impostorCount: 1,        // 1 or 2
+    wordsPerPerson: 3,       // custom mode: 3 or 5
+    submissions: {},         // custom mode: { pid: [words] }
+    word: null,              // the crew word in play
+    wordAuthor: null,        // custom mode: pid who submitted the crew word
+    category: null,          // categories mode: category name in play
+    impostors: [],           // pids of the impostor(s)
+    round: 1,
+    votes: {},               // { voterPid: targetPid }
+  };
+}
+
 function newGame(hostPid) {
   return {
     code: makeCode(),
     hostId: hostPid,               // player.id (stable pid) of the host
-    phase: 'lobby',                // lobby | reveal | playing | accusation | ended
+    mode: 'wink',                  // 'wink' | 'impostor'
+    phase: 'lobby',                // lobby | (wink) reveal/playing/accusation | (imp) imp_words/imp_play/imp_vote | ended
     players: [],                   // Player[]
     config: { murdererCount: 1 },
+    impostor: defaultImpostor(),   // Word Impostor state
     revealEndsAt: null,
-    round: null,                   // accusation round state
-    winner: null,                  // 'innocents' | 'murderers'
+    round: null,                   // accusation round state (wink)
+    winner: null,                  // wink: 'innocents'|'murderers' · impostor: 'crew'|'impostors'
     log: [],                       // human-readable event feed
     timers: {},                    // active setTimeout handles (not serialized)
     createdAt: Date.now(),
@@ -146,9 +190,11 @@ function viewFor(game, viewerId) {
   return {
     code: game.code,
     phase: game.phase,
+    mode: game.mode,
     hostId: game.hostId,
     youId: viewerId,
     config: game.config,
+    impostor: impostorView(game, viewerId),
     revealEndsAt: game.revealEndsAt,
     winner: game.winner,
     log: game.log,
@@ -186,9 +232,61 @@ function viewFor(game, viewerId) {
       connected: p.connected,
       // role visible only for yourself, or for everyone once the game ends
       role: ended || p.id === viewerId ? p.role : null,
+      // impostor status is revealed to everyone only at the end
+      impostor: ended && game.mode === 'impostor' ? game.impostor.impostors.includes(p.id) : false,
       you: p.id === viewerId,
     })),
   };
+}
+
+/** Per-viewer view of the Word Impostor state (keeps each secret private). */
+function impostorView(game, viewerId) {
+  if (game.mode !== 'impostor') return null;
+  const imp = game.impostor;
+  const ended = game.phase === 'ended';
+  const connected = game.players.filter((p) => p.connected);
+  const amImpostor = imp.impostors.includes(viewerId);
+  const started = ['imp_play', 'imp_vote', 'ended'].includes(game.phase);
+
+  const base = {
+    variant: imp.variant,
+    categories: imp.categories,
+    revealCategory: imp.revealCategory,
+    impostorCount: imp.impostorCount,
+    wordsPerPerson: imp.wordsPerPerson,
+    round: imp.round,
+    // custom submission progress
+    submittedCount: Object.keys(imp.submissions).length,
+    connectedCount: connected.length,
+    youSubmitted: Array.isArray(imp.submissions[viewerId]),
+    yourSubmission: imp.submissions[viewerId] || null,
+    // voting progress
+    voteCount: Object.keys(imp.votes).length,
+    youVoted: Object.prototype.hasOwnProperty.call(imp.votes, viewerId),
+    yourVote: imp.votes[viewerId] || null,
+  };
+
+  // Your private secret (only once roles are dealt).
+  if (started) {
+    base.youAreImpostor = amImpostor;
+    base.yourWord = amImpostor ? null : imp.word;
+    base.yourCategory = imp.variant === 'categories' && imp.revealCategory ? imp.category : null;
+  }
+
+  // Full reveal at the end.
+  if (ended) {
+    const tally = {};
+    for (const t of Object.values(imp.votes)) tally[t] = (tally[t] || 0) + 1;
+    base.reveal = {
+      word: imp.word,
+      category: imp.variant === 'categories' ? imp.category : null,
+      variant: imp.variant,
+      authorName: imp.wordAuthor ? (getPlayer(game, imp.wordAuthor)?.name || null) : null,
+      impostorNames: imp.impostors.map((pid) => getPlayer(game, pid)?.name).filter(Boolean),
+      tally: game.players.map((p) => ({ id: p.id, name: p.name, votes: tally[p.id] || 0 })),
+    };
+  }
+  return base;
 }
 
 /** Emit a personalized state to every connected socket in the game room. */
@@ -257,8 +355,75 @@ function endGame(game, winner, reason) {
   game.winner = winner;
   game.round = null;
   game.revealEndsAt = null;
-  pushLog(game, `🏁 ${winner === 'innocents' ? 'Innocents' : 'Murderers'} win — ${reason}`);
-  emitSfx(game, winner === 'innocents' ? 'win_innocents' : 'win_murderers');
+  const goodSide = winner === 'innocents' || winner === 'crew';
+  const label = { innocents: 'Innocents', murderers: 'Murderers', crew: 'Crew', impostors: 'Impostors' }[winner] || winner;
+  pushLog(game, `🏁 ${label} win — ${reason}`);
+  emitSfx(game, goodSide ? 'win_innocents' : 'win_murderers');
+}
+
+// ---------------------------------------------------------------------------
+// Word Impostor logic
+// ---------------------------------------------------------------------------
+
+function startImpostorGame(game) {
+  const imp = game.impostor;
+  // Only connected players take part; drop any lobby ghosts.
+  game.players = game.players.filter((p) => p.connected);
+  const players = game.players;
+
+  if (imp.variant === 'categories') {
+    const cat = CATEGORY_BY_ID[pick(imp.categories)];
+    imp.category = cat.name;
+    imp.word = pick(cat.words);
+    imp.wordAuthor = null;
+  } else {
+    const pool = [];
+    for (const p of players) {
+      for (const w of (imp.submissions[p.id] || [])) pool.push({ word: w, author: p.id });
+    }
+    const chosen = pick(pool);
+    imp.word = chosen.word;
+    imp.wordAuthor = chosen.author;
+    imp.category = null;
+  }
+
+  const count = Math.min(Math.max(1, imp.impostorCount), players.length - 1);
+  imp.impostors = shuffle(players).slice(0, count).map((p) => p.id);
+  imp.round = 1;
+  imp.votes = {};
+  game.winner = null;
+  game.phase = 'imp_play';
+  pushLog(game, `🕵️ Word Impostor started — ${count} impostor(s) hidden among ${players.length}.`);
+  broadcast(game);
+}
+
+function resolveImpostorVote(game) {
+  const imp = game.impostor;
+  const tally = {};
+  for (const t of Object.values(imp.votes)) tally[t] = (tally[t] || 0) + 1;
+
+  let top = null, topN = -1, tie = false;
+  for (const [pid, n] of Object.entries(tally)) {
+    if (n > topN) { top = pid; topN = n; tie = false; }
+    else if (n === topN) { tie = true; }
+  }
+
+  let winner;
+  if (!top || topN <= 0 || tie) {
+    winner = 'impostors';
+    pushLog(game, '🗳️ The vote reached no clear majority — the impostor slips away.');
+  } else {
+    const name = getPlayer(game, top)?.name || 'Someone';
+    if (imp.impostors.includes(top)) {
+      winner = 'crew';
+      pushLog(game, `🗳️ The group ejected ${name} — an IMPOSTOR!`);
+    } else {
+      winner = 'impostors';
+      pushLog(game, `🗳️ The group ejected ${name} — but they were CREW!`);
+    }
+  }
+  endGame(game, winner, winner === 'crew' ? 'The impostor was caught.' : 'The impostor escaped.');
+  broadcast(game);
 }
 
 // ---------------------------------------------------------------------------
@@ -404,10 +569,11 @@ io.on('connection', (socket) => {
     broadcast(game);
   });
 
-  // --- Host starts the game: assign roles, run reveal window --------------
+  // --- Host starts the game: assign roles, run reveal window (WINK) -------
   socket.on('start_game', () => {
     const { game, player } = ctx();
     if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby') return;
+    if (game.mode !== 'wink') return;
     const connectedCount = game.players.filter((p) => p.connected).length;
     if (connectedCount < 3) {
       socket.emit('toast', { type: 'error', text: 'Need at least 3 connected players to start.' });
@@ -544,8 +710,143 @@ io.on('connection', (socket) => {
     game.revealEndsAt = null;
     game.log = [];
     game.players.forEach((p) => { p.role = null; p.alive = true; });
+    // Keep the chosen mode + impostor config, clear the last round's secrets.
+    const cfg = game.impostor;
+    cfg.word = null; cfg.wordAuthor = null; cfg.category = null;
+    cfg.impostors = []; cfg.round = 1; cfg.votes = {}; cfg.submissions = {};
     pushLog(game, '🔄 New round — back to the lobby.');
     broadcast(game);
+  });
+
+  // ===================== Word Impostor =====================================
+
+  // Host switches the game mode in the lobby.
+  socket.on('set_mode', ({ mode }) => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby') return;
+    if (mode !== 'wink' && mode !== 'impostor') return;
+    game.mode = mode;
+    broadcast(game);
+  });
+
+  // Host configures the Word Impostor options in the lobby.
+  socket.on('set_impostor_config', (cfg) => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby') return;
+    const imp = game.impostor;
+    if (cfg.variant === 'categories' || cfg.variant === 'custom') imp.variant = cfg.variant;
+    if (Array.isArray(cfg.categories)) imp.categories = cfg.categories.filter((id) => CATEGORY_BY_ID[id]);
+    if (typeof cfg.revealCategory === 'boolean') imp.revealCategory = cfg.revealCategory;
+    if (cfg.impostorCount != null) imp.impostorCount = Math.min(2, Math.max(1, parseInt(cfg.impostorCount, 10) || 1));
+    if (cfg.wordsPerPerson != null) imp.wordsPerPerson = [3, 5].includes(+cfg.wordsPerPerson) ? +cfg.wordsPerPerson : 3;
+    broadcast(game);
+  });
+
+  // Host opens the word-collection phase (custom variant).
+  socket.on('collect_words', () => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby') return;
+    if (game.mode !== 'impostor' || game.impostor.variant !== 'custom') return;
+    if (game.players.filter((p) => p.connected).length < 3) {
+      socket.emit('toast', { type: 'error', text: 'Need at least 3 connected players.' });
+      return;
+    }
+    game.impostor.submissions = {};
+    game.phase = 'imp_words';
+    pushLog(game, `✍️ Everyone submit ${game.impostor.wordsPerPerson} words!`);
+    broadcast(game);
+  });
+
+  // A player submits their custom words.
+  socket.on('submit_words', ({ words }) => {
+    const { game, player } = ctx();
+    if (!game || !player || game.phase !== 'imp_words') return;
+    const need = game.impostor.wordsPerPerson;
+    const clean = (Array.isArray(words) ? words : [])
+      .map((w) => String(w || '').trim().slice(0, 40))
+      .filter(Boolean);
+    // de-dupe within this player's own list (case-insensitive)
+    const seen = new Set();
+    const unique = clean.filter((w) => { const k = w.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+    if (unique.length < need) {
+      socket.emit('toast', { type: 'error', text: `Enter ${need} different words.` });
+      return;
+    }
+    game.impostor.submissions[player.id] = unique.slice(0, need);
+    pushLog(game, `✅ ${player.name} submitted their words.`);
+    broadcast(game);
+  });
+
+  // Host returns from word-collection to the lobby.
+  socket.on('cancel_collect', () => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'imp_words') return;
+    game.phase = 'lobby';
+    broadcast(game);
+  });
+
+  // Host starts the impostor game (categories: from lobby · custom: from imp_words).
+  socket.on('start_impostor', () => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.mode !== 'impostor') return;
+    const imp = game.impostor;
+    const connected = game.players.filter((p) => p.connected);
+    if (connected.length < 3) { socket.emit('toast', { type: 'error', text: 'Need at least 3 connected players.' }); return; }
+    if (imp.impostorCount >= connected.length) { socket.emit('toast', { type: 'error', text: 'Too many impostors for this group.' }); return; }
+
+    if (imp.variant === 'categories') {
+      if (game.phase !== 'lobby') return;
+      if (imp.categories.length < 3) { socket.emit('toast', { type: 'error', text: 'Pick at least 3 categories.' }); return; }
+    } else {
+      if (game.phase !== 'imp_words') return;
+      const pool = connected.reduce((n, p) => n + (imp.submissions[p.id] || []).length, 0);
+      if (pool < 1) { socket.emit('toast', { type: 'error', text: 'No words submitted yet.' }); return; }
+      const missing = connected.filter((p) => !imp.submissions[p.id]).length;
+      if (missing > 0) { socket.emit('toast', { type: 'error', text: `${missing} player(s) haven't submitted yet.` }); return; }
+    }
+    startImpostorGame(game);
+  });
+
+  // Host advances the discussion round counter.
+  socket.on('imp_next_round', () => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'imp_play') return;
+    game.impostor.round = Math.min(9, game.impostor.round + 1);
+    pushLog(game, `➡️ Round ${game.impostor.round}.`);
+    broadcast(game);
+  });
+
+  // Host moves everyone to the voting screen.
+  socket.on('imp_proceed_to_voting', () => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'imp_play') return;
+    game.impostor.votes = {};
+    game.phase = 'imp_vote';
+    pushLog(game, '🗳️ Voting time — who is the impostor?');
+    emitSfx(game, 'hand');
+    broadcast(game);
+  });
+
+  // A player casts their impostor vote.
+  socket.on('imp_cast_vote', ({ targetId }) => {
+    const { game, player } = ctx();
+    if (!game || !player || game.phase !== 'imp_vote') return;
+    const target = getPlayer(game, targetId);
+    if (!target) return;
+    game.impostor.votes[player.id] = targetId;
+    broadcast(game);
+    // Auto-resolve once every connected player has voted.
+    const connected = game.players.filter((p) => p.connected);
+    if (connected.every((p) => Object.prototype.hasOwnProperty.call(game.impostor.votes, p.id))) {
+      resolveImpostorVote(game);
+    }
+  });
+
+  // Host forces the vote to resolve now.
+  socket.on('imp_end_voting', () => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'imp_vote') return;
+    resolveImpostorVote(game);
   });
 
   // --- Explicit "Leave" button --------------------------------------------

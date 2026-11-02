@@ -2,10 +2,11 @@
 (function () {
   const socket = io();
   const $ = (id) => document.getElementById(id);
-  const screens = ['home', 'lobby', 'reveal', 'play', 'accuse', 'end'];
+  const screens = ['home', 'lobby', 'reveal', 'play', 'accuse', 'imp-words', 'imp-play', 'imp-vote', 'end'];
 
   let state = null;        // latest game state from server
   let revealFlipped = false;
+  let impFlipped = false;
   let timerRAF = null;
 
   // ---- persistent session (survives reloads / dropped connections) ----
@@ -166,6 +167,42 @@
   $('btn-join-yes').onclick = () => socket.emit('join_vote', { join: true });
   $('btn-join-no').onclick = () => socket.emit('join_vote', { join: false });
 
+  // ---------------- word impostor: lobby config ----------------
+  document.querySelectorAll('#game-select .mode-tab').forEach((el) => {
+    el.onclick = () => socket.emit('set_mode', { mode: el.dataset.mode });
+  });
+  document.querySelectorAll('#imp-config .mode-tab[data-variant]').forEach((el) => {
+    el.onclick = () => socket.emit('set_impostor_config', { variant: el.dataset.variant });
+  });
+  document.querySelectorAll('#imp-config .mode-tab[data-wpp]').forEach((el) => {
+    el.onclick = () => socket.emit('set_impostor_config', { wordsPerPerson: +el.dataset.wpp });
+  });
+  $('imp-plus').onclick = () => adjustImpostors(1);
+  $('imp-minus').onclick = () => adjustImpostors(-1);
+  function adjustImpostors(delta) {
+    if (!state) return;
+    const max = Math.min(2, Math.max(1, state.players.length - 1));
+    const n = Math.min(max, Math.max(1, state.impostor.impostorCount + delta));
+    socket.emit('set_impostor_config', { impostorCount: n });
+  }
+  $('reveal-cat-toggle').onchange = (e) => socket.emit('set_impostor_config', { revealCategory: e.target.checked });
+  $('btn-start-imp-cats').onclick = () => socket.emit('start_impostor');
+  $('btn-collect-words').onclick = () => socket.emit('collect_words');
+
+  // ---------------- word impostor: submission ----------------
+  $('btn-submit-words').onclick = () => {
+    const words = Array.from(document.querySelectorAll('#word-inputs input')).map((i) => i.value.trim()).filter(Boolean);
+    socket.emit('submit_words', { words });
+  };
+  $('btn-start-imp-custom').onclick = () => socket.emit('start_impostor');
+  $('btn-cancel-collect').onclick = () => socket.emit('cancel_collect');
+
+  // ---------------- word impostor: play ----------------
+  $('imp-card').onclick = () => { impFlipped = !impFlipped; $('imp-card').classList.toggle('flipped', impFlipped); };
+  $('btn-next-round').onclick = () => socket.emit('imp_next_round');
+  $('btn-proceed-vote').onclick = () => { if (confirm('Proceed to voting now?')) socket.emit('imp_proceed_to_voting'); };
+  $('btn-end-voting').onclick = () => { if (confirm('End voting and reveal the result?')) socket.emit('imp_end_voting'); };
+
   // ---------------- end ----------------
   $('btn-again').onclick = () => socket.emit('play_again');
   $('btn-home').onclick = () => { socket.emit('leave_game'); clearSession(); location.reload(); };
@@ -198,6 +235,9 @@
       case 'reveal': renderReveal(); show('reveal'); break;
       case 'playing': renderPlay(); show('play'); break;
       case 'accusation': renderAccuse(); show('accuse'); break;
+      case 'imp_words': renderImpWords(); show('imp-words'); break;
+      case 'imp_play': renderImpPlay(); show('imp-play'); break;
+      case 'imp_vote': renderImpVote(); show('imp-vote'); break;
       case 'ended': renderEnd(); show('end'); break;
       default: show('home');
     }
@@ -232,6 +272,10 @@
 
   // ---- lobby ----
   function renderLobby() {
+    // fresh cards for the next game
+    revealFlipped = false; impFlipped = false;
+    $('role-card').classList.remove('flipped');
+    $('imp-card').classList.remove('flipped');
     $('lobby-code').textContent = state.code;
     const host = amHost();
     $('lobby-players').innerHTML = state.players.map((p) => playerCard(p, { kickable: host && !p.you })).join('');
@@ -246,16 +290,69 @@
     document.querySelectorAll('.host-only').forEach((el) => el.classList.toggle('hidden', !host));
     document.querySelectorAll('.waiting-only').forEach((el) => el.classList.toggle('hidden', host));
 
-    $('murderer-count').textContent = state.config.murdererCount;
     const n = state.players.length;
+    const mode = state.mode;
+    $('lobby-hint').textContent = n < 3
+      ? `Share code ${state.code}. Need ${3 - n} more player${3 - n > 1 ? 's' : ''}.`
+      : `${n} players in. Share code ${state.code} for more.`;
+
+    // Host: game selector + the right config card
+    if (host) {
+      document.querySelectorAll('#game-select .mode-tab').forEach((el) => el.classList.toggle('active', el.dataset.mode === mode));
+      $('wink-config').classList.toggle('hidden', mode !== 'wink');
+      $('imp-config').classList.toggle('hidden', mode !== 'impostor');
+      if (mode === 'wink') renderWinkConfig(n);
+      else renderImpConfig(n);
+    } else {
+      $('waiting-note').textContent = mode === 'impostor'
+        ? 'Host is setting up 🕵️ Word Impostor…'
+        : 'Host is setting up 🔪 Wink Murder…';
+    }
+  }
+
+  function renderWinkConfig(n) {
     const m = state.config.murdererCount;
+    $('murderer-count').textContent = m;
     $('balance-hint').textContent = n < 3
       ? `Need at least 3 players (you have ${n}).`
       : `${m} murderer${m > 1 ? 's' : ''} vs ${n - m} innocent${n - m > 1 ? 's' : ''}.`;
     $('btn-start').disabled = n < 3;
-    $('lobby-hint').textContent = n < 3
-      ? `Share code ${state.code}. Need ${3 - n} more player${3 - n > 1 ? 's' : ''}.`
-      : `${n} players in. Share code ${state.code} for more.`;
+  }
+
+  const CATEGORIES = [
+    { id: 'animals', name: 'Animals', emoji: '🐾' },
+    { id: 'food', name: 'Food & Drink', emoji: '🍔' },
+    { id: 'places', name: 'Places', emoji: '🌍' },
+    { id: 'sports', name: 'Sports', emoji: '⚽' },
+    { id: 'screen', name: 'Movies & TV', emoji: '🎬' },
+    { id: 'jobs', name: 'Jobs', emoji: '💼' },
+  ];
+
+  function renderImpConfig(n) {
+    const imp = state.impostor;
+    document.querySelectorAll('#imp-config .mode-tab[data-variant]').forEach((el) => el.classList.toggle('active', el.dataset.variant === imp.variant));
+    document.querySelectorAll('#imp-config .mode-tab[data-wpp]').forEach((el) => el.classList.toggle('active', +el.dataset.wpp === imp.wordsPerPerson));
+    $('imp-count').textContent = imp.impostorCount;
+    $('imp-cats-block').classList.toggle('hidden', imp.variant !== 'categories');
+    $('imp-custom-block').classList.toggle('hidden', imp.variant !== 'custom');
+
+    // category chips
+    $('cat-grid').innerHTML = CATEGORIES.map((c) =>
+      `<div class="cat-chip ${imp.categories.includes(c.id) ? 'sel' : ''}" data-cat="${c.id}"><span class="cat-emoji">${c.emoji}</span>${c.name}</div>`
+    ).join('');
+    $('cat-grid').querySelectorAll('.cat-chip').forEach((el) => {
+      el.onclick = () => {
+        const id = el.dataset.cat;
+        const sel = new Set(state.impostor.categories);
+        if (sel.has(id)) sel.delete(id); else sel.add(id);
+        socket.emit('set_impostor_config', { categories: Array.from(sel) });
+      };
+    });
+    $('reveal-cat-toggle').checked = !!imp.revealCategory;
+    const cats = imp.categories.length;
+    $('imp-cats-hint').textContent = `${cats} selected${cats < 3 ? ` — pick ${3 - cats} more` : ''}.`;
+    $('btn-start-imp-cats').disabled = n < 3 || cats < 3 || imp.impostorCount >= n;
+    $('btn-collect-words').disabled = n < 3;
   }
 
   // ---- reveal ----
@@ -335,8 +432,70 @@
     }
   }
 
+  // ---- word impostor: submission ----
+  function renderImpWords() {
+    const imp = state.impostor;
+    const need = imp.wordsPerPerson;
+    $('imp-words-sub').textContent = `Enter ${need} words — keep them secret!`;
+    const done = imp.youSubmitted;
+    $('imp-words-form').classList.toggle('hidden', done);
+    $('imp-words-done').classList.toggle('hidden', !done);
+    if (!done && $('word-inputs').children.length !== need) {
+      $('word-inputs').innerHTML = Array.from({ length: need }, (_, i) =>
+        `<input maxlength="40" placeholder="Word ${i + 1}" autocomplete="off" />`).join('');
+    }
+    $('imp-words-progress').textContent = `${imp.submittedCount} of ${imp.connectedCount} players ready.`;
+    const host = amHost();
+    document.querySelectorAll('#screen-imp-words .host-only').forEach((el) => el.classList.toggle('hidden', !host));
+    if (host) $('btn-start-imp-custom').disabled = imp.submittedCount < imp.connectedCount;
+  }
+
+  // ---- word impostor: play (word card + rounds) ----
+  function renderImpPlay() {
+    const imp = state.impostor;
+    $('imp-round').textContent = imp.round;
+    $('imp-play-counts').innerHTML = `<b>${state.players.length}</b> players<br>${imp.impostorCount} impostor${imp.impostorCount > 1 ? 's' : ''}`;
+    const front = $('imp-card-front');
+    if (imp.youAreImpostor) {
+      front.className = 'role-face role-front murderer';
+      $('imp-emoji').textContent = '🕵️';
+      $('imp-word').textContent = 'IMPOSTOR';
+      $('imp-desc').innerHTML = imp.yourCategory
+        ? `You don't know the word. Blend in!<br><b>Category: ${escapeHtml(imp.yourCategory)}</b>`
+        : `You don't know the word. Listen to the clues and blend in!`;
+    } else {
+      front.className = 'role-face role-front innocent';
+      $('imp-emoji').textContent = '💬';
+      $('imp-word').textContent = imp.yourWord || '—';
+      $('imp-desc').textContent = 'Give a one-word clue that fits. Find who is faking.';
+    }
+    const host = amHost();
+    document.querySelectorAll('#screen-imp-play .host-only').forEach((el) => el.classList.toggle('hidden', !host));
+    document.querySelectorAll('#screen-imp-play .waiting-only').forEach((el) => el.classList.toggle('hidden', host));
+    $('imp-play-feed').innerHTML = state.log.slice(0, 6).map((l) => `<div class="feed-item">${escapeHtml(l.text)}</div>`).join('');
+  }
+
+  // ---- word impostor: vote ----
+  function renderImpVote() {
+    const imp = state.impostor;
+    $('imp-vote-sub').textContent = `Tap your pick. ${imp.voteCount}/${imp.connectedCount} voted.`;
+    $('imp-vote-progress').textContent = imp.youVoted ? 'You voted — tap another to change it.' : 'Pick who you think is the impostor.';
+    $('imp-vote-players').innerHTML = state.players.map((p) => {
+      const card = playerCard(p, { selectable: true });
+      return imp.yourVote === p.id ? card.replace('class="player selectable', 'class="player selectable you') : card;
+    }).join('');
+    $('imp-vote-players').querySelectorAll('.player.selectable').forEach((el) => {
+      el.onclick = () => socket.emit('imp_cast_vote', { targetId: el.dataset.id });
+    });
+    const host = amHost();
+    document.querySelectorAll('#screen-imp-vote .host-only').forEach((el) => el.classList.toggle('hidden', !host));
+  }
+
   // ---- end ----
   function renderEnd() {
+    if (state.mode === 'impostor') return renderImpEnd();
+    $('end-impostor-reveal').classList.add('hidden');
+    $('end-players').classList.remove('hidden');
     const w = state.winner;
     $('end-hero').className = 'end-hero ' + w;
     $('end-emoji').textContent = w === 'innocents' ? '🟢' : '🔪';
@@ -344,6 +503,41 @@
     const last = state.log.find((l) => l.text.includes('win'));
     $('end-reason').textContent = last ? last.text.replace(/^🏁\s*/, '') : '';
     $('end-players').innerHTML = state.players.map((p) => playerCard(p, { showRole: true })).join('');
+    const host = amHost();
+    document.querySelectorAll('#screen-end .host-only').forEach((el) => el.classList.toggle('hidden', !host));
+    document.querySelectorAll('#screen-end .waiting-only').forEach((el) => el.classList.toggle('hidden', host));
+  }
+
+  function renderImpEnd() {
+    const w = state.winner; // 'crew' | 'impostors'
+    const r = state.impostor.reveal || {};
+    $('end-hero').className = 'end-hero ' + (w === 'crew' ? 'innocents' : 'murderers');
+    $('end-emoji').textContent = w === 'crew' ? '🎉' : '🕵️';
+    $('end-title').textContent = w === 'crew' ? 'Crew Win!' : 'Impostors Win!';
+    $('end-reason').textContent = w === 'crew' ? 'The impostor was caught.' : 'The impostor slipped away.';
+
+    let html = `<div class="reveal-word-card">
+      <div class="sub">The word was</div>
+      <div class="big-word">${escapeHtml(r.word || '—')}</div>`;
+    if (r.category) html += `<div class="sub">Category: ${escapeHtml(r.category)}</div>`;
+    if (r.authorName) html += `<div class="sub">Suggested by ${escapeHtml(r.authorName)}</div>`;
+    html += `<div class="sub" style="margin-top:8px">Impostor${(r.impostorNames || []).length > 1 ? 's' : ''}: <b>${(r.impostorNames || []).map(escapeHtml).join(', ') || '—'}</b></div></div>`;
+
+    // vote tally
+    const impSet = new Set(r.impostorNames || []);
+    html += '<div class="eyebrow" style="margin:4px 0 6px">Votes</div>';
+    html += (r.tally || []).slice().sort((a, b) => b.votes - a.votes).map((t) => {
+      const p = state.players.find((pl) => pl.id === t.id) || {};
+      return `<div class="tally-row">
+        <span class="dot" style="width:16px;height:16px;background:${p.color ? p.color.hex : '#888'}"></span>
+        <span>${escapeHtml(t.name)}${impSet.has(t.name) ? ' 🕵️' : ''}</span>
+        <span class="votes">${t.votes} vote${t.votes === 1 ? '' : 's'}</span>
+      </div>`;
+    }).join('');
+
+    $('end-impostor-reveal').innerHTML = html;
+    $('end-impostor-reveal').classList.remove('hidden');
+    $('end-players').classList.add('hidden');
     const host = amHost();
     document.querySelectorAll('#screen-end .host-only').forEach((el) => el.classList.toggle('hidden', !host));
     document.querySelectorAll('#screen-end .waiting-only').forEach((el) => el.classList.toggle('hidden', host));

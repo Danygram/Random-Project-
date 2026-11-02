@@ -148,6 +148,54 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 2
 }
 .player .kick:active { transform: scale(0.9); }
 
+/* ---------- Mode tabs / game select ---------- */
+.mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.mode-tab {
+  padding: 14px 10px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--card); color: var(--text); font-weight: 600; font-size: 0.95rem;
+  cursor: pointer; font-family: inherit; transition: all 0.15s;
+}
+.mode-tab.active { border-color: var(--accent); background: rgba(139,92,246,0.18); box-shadow: 0 0 0 2px rgba(139,92,246,0.25); }
+.mode-tab:active { transform: scale(0.97); }
+.mode-tabs.sub .mode-tab { padding: 10px; font-size: 0.9rem; }
+
+.field-label { display: block; font-size: 0.8rem; color: var(--muted); margin: 4px 0 8px; }
+
+/* ---------- Category grid ---------- */
+.cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.cat-chip {
+  padding: 14px 10px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--bg-2); color: var(--text); font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; font-size: 0.92rem; transition: all 0.15s;
+}
+.cat-chip .cat-emoji { font-size: 1.2rem; }
+.cat-chip.sel { border-color: var(--accent); background: rgba(139,92,246,0.16); }
+.cat-chip.sel::after { content: '✓'; margin-left: auto; color: var(--accent); font-weight: 800; }
+.cat-chip:active { transform: scale(0.97); }
+
+/* ---------- Toggle row ---------- */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; font-size: 0.95rem; }
+.toggle-row input[type="checkbox"] { width: 48px; height: 28px; appearance: none; background: var(--line); border-radius: 999px; position: relative; cursor: pointer; transition: background 0.15s; flex: none; }
+.toggle-row input[type="checkbox"]::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.toggle-row input[type="checkbox"]:checked { background: var(--accent); }
+.toggle-row input[type="checkbox"]:checked::after { transform: translateX(20px); }
+
+/* ---------- Word inputs ---------- */
+#word-inputs { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+#word-inputs input { font-size: 1.05rem; }
+
+/* ---------- Impostor end reveal ---------- */
+#end-impostor-reveal { margin: 8px 0 14px; }
+.reveal-word-card {
+  background: linear-gradient(160deg, var(--card), var(--card-2)); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 20px; text-align: center; margin-bottom: 14px;
+}
+.reveal-word-card .big-word { font-family: 'Space Grotesk'; font-size: 2rem; font-weight: 700; margin: 6px 0; }
+.reveal-word-card .sub { color: var(--muted); font-size: 0.9rem; }
+.tally-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 0.9rem; }
+.tally-row .votes { margin-left: auto; color: var(--muted); font-weight: 600; }
+.imp-badge { font-size: 0.7rem; color: #fca5a5; margin-top: 2px; }
+
 /* ---------- Stepper ---------- */
 .stepper { display: flex; align-items: center; gap: 14px; }
 .btn.step { width: 52px; height: 52px; font-size: 1.5rem; border-radius: 12px; display: flex; align-items: center; justify-content: center; padding: 0; }

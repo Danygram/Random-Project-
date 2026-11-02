@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <meta name="theme-color" content="#0b0b12" />
-  <title>Wink Murder</title>
+  <title>Party Games</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -15,9 +15,9 @@
     <!-- =================== HOME =================== -->
     <section class="screen active" id="screen-home">
       <div class="hero">
-        <div class="logo">🔪</div>
-        <h1>Wink Murder</h1>
-        <p class="tagline">A wink kills. A stare catches. Trust no one.</p>
+        <div class="logo">🎭</div>
+        <h1>Party Games</h1>
+        <p class="tagline">🔪 Wink Murder &nbsp;·&nbsp; 🕵️ Word Impostor — the host picks.</p>
       </div>
       <div class="card">
         <label class="field">
@@ -49,7 +49,17 @@
 
       <div class="players-grid" id="lobby-players"></div>
 
-      <div class="card host-only" id="host-config">
+      <!-- HOST: pick which game -->
+      <div class="host-only" id="game-select">
+        <div class="eyebrow" style="margin-bottom:8px">Choose game</div>
+        <div class="mode-tabs">
+          <button class="mode-tab" data-mode="wink">🔪 Wink Murder</button>
+          <button class="mode-tab" data-mode="impostor">🕵️ Word Impostor</button>
+        </div>
+      </div>
+
+      <!-- HOST: Wink Murder config -->
+      <div class="card host-only" id="wink-config">
         <label class="field">
           <span>Number of murderers</span>
           <div class="stepper">
@@ -61,7 +71,105 @@
         <p class="muted small" id="balance-hint"></p>
         <button class="btn primary big" id="btn-start">Start game</button>
       </div>
+
+      <!-- HOST: Word Impostor config -->
+      <div class="card host-only" id="imp-config">
+        <div class="mode-tabs sub">
+          <button class="mode-tab" data-variant="categories">Categories</button>
+          <button class="mode-tab" data-variant="custom">Custom words</button>
+        </div>
+
+        <label class="field">
+          <span>Number of impostors</span>
+          <div class="stepper">
+            <button class="btn step" id="imp-minus">−</button>
+            <div class="stepper-val" id="imp-count">1</div>
+            <button class="btn step" id="imp-plus">+</button>
+          </div>
+        </label>
+
+        <!-- categories -->
+        <div id="imp-cats-block">
+          <span class="field-label">Pick at least 3 categories</span>
+          <div class="cat-grid" id="cat-grid"></div>
+          <label class="toggle-row">
+            <span>Tell the impostor the category</span>
+            <input type="checkbox" id="reveal-cat-toggle" />
+          </label>
+          <p class="muted small" id="imp-cats-hint"></p>
+          <button class="btn primary big" id="btn-start-imp-cats">Start game</button>
+        </div>
+
+        <!-- custom -->
+        <div id="imp-custom-block">
+          <span class="field-label">Words per person</span>
+          <div class="mode-tabs sub" style="margin-bottom:14px">
+            <button class="mode-tab" data-wpp="3">3 words</button>
+            <button class="mode-tab" data-wpp="5">5 words</button>
+          </div>
+          <p class="muted small">Each player secretly enters their words, then you start the game on just those words.</p>
+          <button class="btn primary big" id="btn-collect-words">Collect words →</button>
+        </div>
+      </div>
+
       <div class="muted center waiting-only" id="waiting-note">Waiting for the host to start…</div>
+    </section>
+
+    <!-- =================== IMPOSTOR: WORD SUBMISSION =================== -->
+    <section class="screen" id="screen-imp-words">
+      <div class="reveal-head center">
+        <h2>Enter your words</h2>
+        <p class="muted" id="imp-words-sub">Add your words — keep them secret!</p>
+      </div>
+      <div id="imp-words-form">
+        <div id="word-inputs"></div>
+        <button class="btn primary big" id="btn-submit-words">Submit my words</button>
+      </div>
+      <div id="imp-words-done" class="hidden">
+        <div class="dead-banner"><div class="dead-emoji">✅</div><div>Words submitted! Waiting for the others…</div></div>
+      </div>
+      <p class="muted center small" id="imp-words-progress"></p>
+      <div class="card host-only" id="imp-words-host">
+        <button class="btn primary big" id="btn-start-imp-custom">Start game</button>
+        <button class="btn ghost" id="btn-cancel-collect">Back to lobby</button>
+      </div>
+    </section>
+
+    <!-- =================== IMPOSTOR: PLAY =================== -->
+    <section class="screen" id="screen-imp-play">
+      <header class="topbar">
+        <div><div class="eyebrow">Round</div><div class="code-display" id="imp-round">1</div></div>
+        <div class="counts" id="imp-play-counts"></div>
+      </header>
+      <div class="role-card-wrap">
+        <div class="role-card" id="imp-card">
+          <div class="role-face role-back"><div class="q">?</div><div class="tap-hint">Tap to reveal</div></div>
+          <div class="role-face role-front" id="imp-card-front">
+            <div class="role-emoji" id="imp-emoji">💬</div>
+            <div class="role-name" id="imp-word">—</div>
+            <div class="role-desc" id="imp-desc"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card host-only" id="imp-play-host">
+        <button class="btn big" id="btn-next-round">Next round →</button>
+        <button class="btn primary big" id="btn-proceed-vote">Proceed to voting</button>
+      </div>
+      <p class="muted center small waiting-only">Give clues out loud. The host starts the vote when ready.</p>
+      <div class="feed" id="imp-play-feed"></div>
+    </section>
+
+    <!-- =================== IMPOSTOR: VOTE =================== -->
+    <section class="screen" id="screen-imp-vote">
+      <div class="accuse-head center">
+        <h2>Who is the impostor?</h2>
+        <p class="muted" id="imp-vote-sub">Tap your pick. The most-voted player is ejected.</p>
+      </div>
+      <div class="players-grid" id="imp-vote-players"></div>
+      <p class="muted center small" id="imp-vote-progress"></p>
+      <div class="card host-only" id="imp-vote-host">
+        <button class="btn primary big" id="btn-end-voting">End voting & reveal</button>
+      </div>
     </section>
 
     <!-- =================== REVEAL =================== -->
@@ -155,6 +263,7 @@
         <h1 id="end-title">Winners</h1>
         <p id="end-reason" class="muted"></p>
       </div>
+      <div id="end-impostor-reveal" class="hidden"></div>
       <div class="players-grid reveal-all" id="end-players"></div>
       <button class="btn primary big host-only" id="btn-again">Play again (same crew)</button>
       <button class="btn big waiting-only" id="btn-home">Back to home</button>
