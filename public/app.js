@@ -66,6 +66,18 @@
     death: () => { buzz([330]); tone(300, 0, 0.5, 'sawtooth', 0.18, 90); },
     // a murderer is caught — bright triumphant arpeggio
     murderer_caught: () => { buzz([70, 40, 70, 40, 160]); tone(523, 0, 0.12, 'square', 0.14); tone(659, 0.12, 0.12, 'square', 0.14); tone(784, 0.24, 0.26, 'square', 0.16); },
+    // innocents win — rising major fanfare (C E G C) with a held final note
+    win_innocents: () => {
+      buzz([120, 80, 120, 80, 240]);
+      [[523, 0, 0.16], [659, 0.16, 0.16], [784, 0.32, 0.16], [1046, 0.48, 0.5]].forEach(([f, s, d]) => tone(f, s, d, 'triangle', 0.17));
+    },
+    // murderers win — dark descending sting with a low held note
+    win_murderers: () => {
+      buzz([300, 120, 300]);
+      [[392, 0, 0.18], [311, 0.18, 0.18], [233, 0.36, 0.22]].forEach(([f, s, d]) => tone(f, s, d, 'sawtooth', 0.16));
+      tone(130, 0.52, 0.7, 'sawtooth', 0.16);
+      tone(196, 0.52, 0.7, 'triangle', 0.1);
+    },
   };
   function playSfx(type) { if (muted) return; unlockAudio(); const fn = SFX[type]; if (fn) { try { fn(); } catch (e) {} } }
 

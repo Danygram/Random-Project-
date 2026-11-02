@@ -258,6 +258,7 @@ function endGame(game, winner, reason) {
   game.round = null;
   game.revealEndsAt = null;
   pushLog(game, `🏁 ${winner === 'innocents' ? 'Innocents' : 'Murderers'} win — ${reason}`);
+  emitSfx(game, winner === 'innocents' ? 'win_innocents' : 'win_murderers');
 }
 
 // ---------------------------------------------------------------------------
@@ -286,8 +287,11 @@ function resolveRound(game) {
     // Correct! The accused really is a murderer — caught and removed.
     suspect.alive = false;
     pushLog(game, `✅ ${suspect.name} was accused and is a MURDERER — caught and eliminated!`);
-    emitSfx(game, 'murderer_caught');
-    if (!checkWin(game)) pushLog(game, 'A murderer remains. The game continues.');
+    // If this catch ends the game, the win fanfare covers it; otherwise play the catch chime.
+    if (!checkWin(game)) {
+      emitSfx(game, 'murderer_caught');
+      pushLog(game, 'A murderer remains. The game continues.');
+    }
     broadcast(game);
     return;
   }

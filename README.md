@@ -68,8 +68,10 @@ Every phone fires a synced cue (synthesized via the Web Audio API — no sound f
 | 🙋 A hand goes up (accusation) | two rising beeps | short double buzz |
 | 💀 Someone dies (wink / wrong accusation) | low ominous drop | one long buzz |
 | ✅ A murderer is caught | bright triumphant arpeggio | staccato buzz |
+| 🏁 Innocents win | rising major fanfare (C–E–G–C) | long celebratory pattern |
+| 🏁 Murderers win | dark descending sting + low note | heavy double buzz |
 
-Tap the 🔊 button (bottom-left) to mute; the choice is remembered. Mobile browsers only enable audio after the first tap, so the sound "wakes up" once a player interacts with the page.
+When catching a murderer *ends* the game, only the win fanfare plays (the catch chime is suppressed to avoid overlap). Tap the 🔊 button (bottom-left) to mute; the choice is remembered. Mobile browsers only enable audio after the first tap, so the sound "wakes up" once a player interacts with the page.
 
 ### Connection resilience
 
