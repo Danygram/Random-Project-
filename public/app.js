@@ -30,6 +30,58 @@
   const me = () => (state ? state.players.find((p) => p.you) : null);
   const amHost = () => state && me() && state.hostId === me().id;
 
+  // ---------------- sound + vibration ----------------
+  let muted = false;
+  try { muted = localStorage.getItem('winkmurder.muted') === '1'; } catch (e) {}
+  let actx = null;
+  function audioCtx() {
+    if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; } }
+    return actx;
+  }
+  // Mobile browsers start the audio context "suspended" until a user gesture.
+  function unlockAudio() { const ac = audioCtx(); if (ac && ac.state === 'suspended') ac.resume().catch(() => {}); }
+  document.addEventListener('pointerdown', unlockAudio);
+
+  // One synthesized note (no audio files needed).
+  function tone(freq, startAt, dur, type, gainVal, slideTo) {
+    const ac = audioCtx(); if (!ac) return;
+    const t0 = ac.currentTime + startAt;
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, t0);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gainVal || 0.15, t0 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g).connect(ac.destination);
+    osc.start(t0); osc.stop(t0 + dur + 0.03);
+  }
+  function buzz(pattern) { try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {} }
+
+  const SFX = {
+    // a hand goes up — two rising attention beeps
+    hand: () => { buzz([90, 50, 90]); tone(660, 0, 0.12, 'triangle', 0.2); tone(990, 0.13, 0.17, 'triangle', 0.22); },
+    // someone dies — low ominous drop
+    death: () => { buzz([330]); tone(300, 0, 0.5, 'sawtooth', 0.18, 90); },
+    // a murderer is caught — bright triumphant arpeggio
+    murderer_caught: () => { buzz([70, 40, 70, 40, 160]); tone(523, 0, 0.12, 'square', 0.14); tone(659, 0.12, 0.12, 'square', 0.14); tone(784, 0.24, 0.26, 'square', 0.16); },
+  };
+  function playSfx(type) { if (muted) return; unlockAudio(); const fn = SFX[type]; if (fn) { try { fn(); } catch (e) {} } }
+
+  function applyMuteUI() {
+    const b = $('sound-toggle');
+    b.textContent = muted ? '🔇' : '🔊';
+    b.classList.toggle('muted', muted);
+  }
+  $('sound-toggle').onclick = () => {
+    muted = !muted;
+    try { localStorage.setItem('winkmurder.muted', muted ? '1' : '0'); } catch (e) {}
+    applyMuteUI();
+    if (!muted) playSfx('hand'); // quick confirmation blip when turning on
+  };
+  applyMuteUI();
+
   // ---------------- home ----------------
   $('btn-create').onclick = () => {
     const name = $('home-name').value.trim();
@@ -108,6 +160,7 @@
 
   // ---------------- socket events ----------------
   socket.on('toast', (d) => toast(d.text, d.type));
+  socket.on('sfx', (d) => playSfx(d && d.type));
   socket.on('state', (s) => { state = s; render(); });
   socket.on('connect_error', () => toast('Connection problem…', 'error'));
   socket.on('disconnect', () => toast('Reconnecting…', 'error'));

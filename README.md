@@ -59,6 +59,18 @@ Also deploys as-is to **Railway, Fly.io, or any Node host**.
 
 The three grace values are also read from env vars of the same name.
 
+### Sound & vibration
+
+Every phone fires a synced cue (synthesized via the Web Audio API — no sound files) plus a vibration on key moments:
+
+| Event | Sound | Vibration |
+|-------|-------|-----------|
+| 🙋 A hand goes up (accusation) | two rising beeps | short double buzz |
+| 💀 Someone dies (wink / wrong accusation) | low ominous drop | one long buzz |
+| ✅ A murderer is caught | bright triumphant arpeggio | staccato buzz |
+
+Tap the 🔊 button (bottom-left) to mute; the choice is remembered. Mobile browsers only enable audio after the first tap, so the sound "wakes up" once a player interacts with the page.
+
 ### Connection resilience
 
 Each player gets a **stable token** (stored in the browser), so a dropped socket — screen lock, tab switch, network blip, or a full page reload — **reclaims the same seat** instead of vanishing. Players no longer "randomly quit."

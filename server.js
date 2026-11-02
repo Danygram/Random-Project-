@@ -198,6 +198,13 @@ function broadcast(game) {
   }
 }
 
+/** Fire a sound/vibration cue on every player's device at once. */
+function emitSfx(game, type) {
+  for (const p of game.players) {
+    if (p.connected && p.socketId) io.to(p.socketId).emit('sfx', { type });
+  }
+}
+
 function findGameBySocketId(socketId) {
   for (const g of games.values()) {
     if (g.players.some((p) => p.socketId === socketId)) return g;
@@ -279,6 +286,7 @@ function resolveRound(game) {
     // Correct! The accused really is a murderer — caught and removed.
     suspect.alive = false;
     pushLog(game, `✅ ${suspect.name} was accused and is a MURDERER — caught and eliminated!`);
+    emitSfx(game, 'murderer_caught');
     if (!checkWin(game)) pushLog(game, 'A murderer remains. The game continues.');
     broadcast(game);
     return;
@@ -294,6 +302,7 @@ function resolveRound(game) {
   }
   if (eliminated.length) {
     pushLog(game, `❌ ${suspect ? suspect.name : 'The accused'} was INNOCENT. Wrong accusers eliminated: ${eliminated.join(', ')}. The murderer is still out there.`);
+    emitSfx(game, 'death');
   } else {
     pushLog(game, `❌ ${suspect ? suspect.name : 'The accused'} was INNOCENT — no innocent accusers to eliminate. The murderer is still among you.`);
   }
@@ -437,6 +446,7 @@ io.on('connection', (socket) => {
     if (!player.alive) return;
     player.alive = false;
     pushLog(game, `💀 ${player.name} was killed. ✖️ Arms crossed.`);
+    emitSfx(game, 'death');
     checkWin(game);
     broadcast(game);
   });
@@ -450,6 +460,7 @@ io.on('connection', (socket) => {
     if (!target || !target.alive) return;
     target.alive = false;
     pushLog(game, `💀 ${target.name} was marked out by the host.`);
+    emitSfx(game, 'death');
     checkWin(game);
     broadcast(game);
   });
@@ -487,6 +498,7 @@ io.on('connection', (socket) => {
       endsAt: Date.now() + JOIN_SECONDS * 1000,
     };
     pushLog(game, `🙋 ${accuser.name} accuses ${suspect.name}! Join the vote?`);
+    emitSfx(game, 'hand');
     broadcast(game);
 
     clearTimeout(game.timers.round);

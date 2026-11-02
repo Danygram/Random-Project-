@@ -246,6 +246,16 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 2
   max-width: 90vw; text-align: center;
 }
 .toast.show { transform: translateX(-50%) translateY(0); }
+
+.sound-toggle {
+  position: fixed; left: 14px; bottom: 16px; z-index: 90;
+  width: 46px; height: 46px; border-radius: 50%;
+  background: var(--card-2); border: 1px solid var(--line); color: var(--text);
+  font-size: 1.2rem; cursor: pointer; box-shadow: 0 10px 24px -14px rgba(0,0,0,0.9);
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.sound-toggle:active { transform: scale(0.92); }
+.sound-toggle.muted { opacity: 0.6; }
 .toast.error { border-color: var(--danger); }
 .toast.ok { border-color: var(--ok); }
 
