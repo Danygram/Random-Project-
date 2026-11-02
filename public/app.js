@@ -8,6 +8,12 @@
   let revealFlipped = false;
   let timerRAF = null;
 
+  // ---- persistent session (survives reloads / dropped connections) ----
+  const LS_KEY = 'winkmurder.session';
+  const saveSession = (code, pid) => { try { localStorage.setItem(LS_KEY, JSON.stringify({ code, pid })); } catch (e) {} };
+  const loadSession = () => { try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { return null; } };
+  const clearSession = () => { try { localStorage.removeItem(LS_KEY); } catch (e) {} };
+
   // ---------------- screen routing ----------------
   function show(name) {
     screens.forEach((s) => $('screen-' + s).classList.toggle('active', s === name));
@@ -30,6 +36,7 @@
     if (!name) return ($('home-err').textContent = 'Enter your name first.');
     socket.emit('create_game', { name }, (res) => {
       if (!res.ok) $('home-err').textContent = res.error || 'Could not create game.';
+      else saveSession(res.code, res.pid);
     });
   };
 
@@ -40,6 +47,7 @@
     if (!code) return ($('home-err').textContent = 'Enter a game code.');
     socket.emit('join_game', { code, name }, (res) => {
       if (!res.ok) $('home-err').textContent = res.error || 'Could not join.';
+      else saveSession(res.code, res.pid);
     });
   };
 
@@ -48,7 +56,7 @@
   });
 
   // ---------------- lobby ----------------
-  $('btn-leave').onclick = () => { socket.emit('leave_game'); location.reload(); };
+  $('btn-leave').onclick = () => { socket.emit('leave_game'); clearSession(); location.reload(); };
   $('murderer-plus').onclick = () => adjustMurderers(1);
   $('murderer-minus').onclick = () => adjustMurderers(-1);
   function adjustMurderers(delta) {
@@ -96,13 +104,26 @@
 
   // ---------------- end ----------------
   $('btn-again').onclick = () => socket.emit('play_again');
-  $('btn-home').onclick = () => { socket.emit('leave_game'); location.reload(); };
+  $('btn-home').onclick = () => { socket.emit('leave_game'); clearSession(); location.reload(); };
 
   // ---------------- socket events ----------------
   socket.on('toast', (d) => toast(d.text, d.type));
   socket.on('state', (s) => { state = s; render(); });
   socket.on('connect_error', () => toast('Connection problem…', 'error'));
-  socket.on('disconnect', () => toast('Disconnected from server', 'error'));
+  socket.on('disconnect', () => toast('Reconnecting…', 'error'));
+
+  // On every (re)connect, try to reclaim our seat from the saved session.
+  socket.on('connect', () => {
+    const s = loadSession();
+    if (!s || !s.code || !s.pid) return;
+    socket.emit('resume_game', { code: s.code, pid: s.pid }, (res) => {
+      if (res && res.ok) toast('Reconnected', 'ok');
+      else if (res && res.reset) { clearSession(); state = null; show('home'); }
+    });
+  });
+
+  // Host removed us from the lobby.
+  socket.on('kicked', () => { clearSession(); state = null; show('home'); toast('The host removed you from the game.', 'error'); });
 
   // ---------------- rendering ----------------
   function render() {
@@ -128,12 +149,15 @@
     const roleMini = opts.showRole && p.role
       ? `<div class="role-mini ${p.role}">${p.role === 'murderer' ? '🔪 Murderer' : '🟢 Innocent'}</div>`
       : '';
+    const offlineTag = !p.connected ? '<div class="role-mini" style="color:var(--muted)">offline…</div>' : '';
+    const kickBtn = opts.kickable ? `<button class="kick" data-kick="${p.id}" title="Remove">✕</button>` : '';
     return `<div class="${classes.join(' ')}" ${opts.selectable ? `data-id="${p.id}"` : ''}>
       <span class="dot" style="background:${p.color ? p.color.hex : '#888'}"></span>
       <div style="min-width:0">
         <div class="pname">${escapeHtml(p.name)}${p.you ? ' (you)' : ''}</div>
-        ${roleMini}
+        ${roleMini}${offlineTag}
       </div>
+      ${kickBtn}
     </div>`;
   }
 
@@ -144,8 +168,16 @@
   // ---- lobby ----
   function renderLobby() {
     $('lobby-code').textContent = state.code;
-    $('lobby-players').innerHTML = state.players.map((p) => playerCard(p)).join('');
     const host = amHost();
+    $('lobby-players').innerHTML = state.players.map((p) => playerCard(p, { kickable: host && !p.you })).join('');
+    if (host) {
+      $('lobby-players').querySelectorAll('.kick').forEach((el) => {
+        el.onclick = (ev) => {
+          ev.stopPropagation();
+          socket.emit('kick_player', { playerId: el.dataset.kick });
+        };
+      });
+    }
     document.querySelectorAll('.host-only').forEach((el) => el.classList.toggle('hidden', !host));
     document.querySelectorAll('.waiting-only').forEach((el) => el.classList.toggle('hidden', host));
 

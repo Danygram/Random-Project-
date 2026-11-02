@@ -140,7 +140,13 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 2
 .player.host-tag .pname::after { content: ' 👑'; }
 .player.selectable { cursor: pointer; }
 .player.selectable:active { transform: scale(0.96); }
-.player.offline { opacity: 0.5; }
+.player.offline { opacity: 0.55; }
+.player .kick {
+  margin-left: auto; flex: none; width: 30px; height: 30px; border-radius: 8px;
+  background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.35);
+  font-size: 0.9rem; font-weight: 700; cursor: pointer; line-height: 1;
+}
+.player .kick:active { transform: scale(0.9); }
 
 /* ---------- Stepper ---------- */
 .stepper { display: flex; align-items: center; gap: 14px; }

@@ -12,6 +12,7 @@
 
 const path = require('path');
 const http = require('http');
+const crypto = require('crypto');
 const express = require('express');
 const { Server } = require('socket.io');
 
@@ -31,6 +32,13 @@ const PORT = process.env.PORT || 3000;
 const REVEAL_SECONDS = 15;      // silent role-reveal window
 const JOIN_SECONDS = 20;        // "join the accusation?" window
 const MAX_PLAYERS = 30;
+
+// Reconnection grace windows. A player identity is a stable token stored in the
+// browser, so a dropped socket (screen lock, network blip, tab switch) can
+// reclaim its seat instead of vanishing.
+const HOST_GRACE_MS = +process.env.HOST_GRACE_MS || 15000;    // before handing off a dropped host
+const LOBBY_GRACE_MS = +process.env.LOBBY_GRACE_MS || 45000;  // drop a lobby player who doesn't return
+const EMPTY_GRACE_MS = +process.env.EMPTY_GRACE_MS || 180000; // delete a game nobody's connected to
 
 // Distinct, high-contrast colors assigned to players in order.
 const COLORS = [
@@ -73,10 +81,12 @@ function makeCode() {
   return code;
 }
 
-function newGame(hostSocketId) {
+const makePid = () => crypto.randomUUID();
+
+function newGame(hostPid) {
   return {
     code: makeCode(),
-    hostId: hostSocketId,          // player.id of the host
+    hostId: hostPid,               // player.id (stable pid) of the host
     phase: 'lobby',                // lobby | reveal | playing | accusation | ended
     players: [],                   // Player[]
     config: { murdererCount: 1 },
@@ -89,13 +99,14 @@ function newGame(hostSocketId) {
   };
 }
 
-function newPlayer(socketId, name, isHost) {
+function newPlayer(pid, socketId, name, isHost) {
   return {
-    id: socketId,
+    id: pid,             // stable identity, survives reconnects
+    socketId,            // current socket (null while disconnected)
     name,
     color: null,
     isHost,
-    role: null,       // 'murderer' | 'innocent'
+    role: null,          // 'murderer' | 'innocent'
     alive: true,
     connected: true,
   };
@@ -183,19 +194,36 @@ function viewFor(game, viewerId) {
 /** Emit a personalized state to every connected socket in the game room. */
 function broadcast(game) {
   for (const p of game.players) {
-    if (p.connected) io.to(p.id).emit('state', viewFor(game, p.id));
+    if (p.connected && p.socketId) io.to(p.socketId).emit('state', viewFor(game, p.id));
   }
 }
 
-function findGameBySocket(socketId) {
+function findGameBySocketId(socketId) {
   for (const g of games.values()) {
-    if (g.players.some((p) => p.id === socketId)) return g;
+    if (g.players.some((p) => p.socketId === socketId)) return g;
   }
   return null;
 }
 
+function getPlayerBySocketId(game, socketId) {
+  return game.players.find((p) => p.socketId === socketId) || null;
+}
+
 function getPlayer(game, id) {
   return game.players.find((p) => p.id === id) || null;
+}
+
+/** Delete a game once nobody has been connected for a while (orphan cleanup). */
+function scheduleEmptyCleanup(game) {
+  if (game.players.some((p) => p.connected)) {
+    if (game.timers.empty) { clearTimeout(game.timers.empty); delete game.timers.empty; }
+    return;
+  }
+  if (game.timers.empty) return;
+  game.timers.empty = setTimeout(() => {
+    clearTimers(game);
+    games.delete(game.code);
+  }, EMPTY_GRACE_MS);
 }
 
 // ---------------------------------------------------------------------------
@@ -290,18 +318,24 @@ function maybeCloseJoinWindow(game) {
 
 io.on('connection', (socket) => {
   const ack = (cb, payload) => typeof cb === 'function' && cb(payload);
+  // Resolve the game + player that THIS socket currently belongs to.
+  const ctx = () => {
+    const game = findGameBySocketId(socket.id);
+    return { game, player: game ? getPlayerBySocketId(game, socket.id) : null };
+  };
 
   // --- Host creates a game -------------------------------------------------
   socket.on('create_game', ({ name }, cb) => {
     name = (name || '').trim().slice(0, 20) || 'Host';
-    const game = newGame(socket.id);
-    const host = newPlayer(socket.id, name, true);
+    const pid = makePid();
+    const game = newGame(pid);
+    const host = newPlayer(pid, socket.id, name, true);
     host.color = assignColor(game);
     game.players.push(host);
     games.set(game.code, game);
     socket.join(game.code);
     pushLog(game, `🎮 ${name} created the game.`);
-    ack(cb, { ok: true, code: game.code });
+    ack(cb, { ok: true, code: game.code, pid });
     broadcast(game);
   });
 
@@ -317,19 +351,40 @@ io.on('connection', (socket) => {
     if (game.players.some((p) => p.name.toLowerCase() === name.toLowerCase()))
       return ack(cb, { ok: false, error: 'That name is taken — pick another.' });
 
-    const player = newPlayer(socket.id, name, false);
+    const pid = makePid();
+    const player = newPlayer(pid, socket.id, name, false);
     player.color = assignColor(game);
     game.players.push(player);
     socket.join(game.code);
+    if (game.timers.empty) { clearTimeout(game.timers.empty); delete game.timers.empty; }
     pushLog(game, `➕ ${name} joined.`);
-    ack(cb, { ok: true, code: game.code });
+    ack(cb, { ok: true, code: game.code, pid });
+    broadcast(game);
+  });
+
+  // --- Reclaim a seat after a reload/disconnect ----------------------------
+  socket.on('resume_game', ({ code, pid }, cb) => {
+    code = (code || '').trim().toUpperCase();
+    const game = games.get(code);
+    if (!game) return ack(cb, { ok: false, reset: true, error: 'That game no longer exists.' });
+    const player = getPlayer(game, pid);
+    if (!player) return ack(cb, { ok: false, reset: true, error: 'Your spot is gone.' });
+
+    player.socketId = socket.id;
+    player.connected = true;
+    socket.join(game.code);
+    // Cancel any pending removal / cleanup for this returning player.
+    if (game.timers['rm_' + pid]) { clearTimeout(game.timers['rm_' + pid]); delete game.timers['rm_' + pid]; }
+    if (game.timers.empty) { clearTimeout(game.timers.empty); delete game.timers.empty; }
+    pushLog(game, `🔌 ${player.name} reconnected.`);
+    ack(cb, { ok: true, code: game.code, pid });
     broadcast(game);
   });
 
   // --- Host sets murderer count -------------------------------------------
   socket.on('set_config', ({ murdererCount }) => {
-    const game = findGameBySocket(socket.id);
-    if (!game || game.hostId !== socket.id || game.phase !== 'lobby') return;
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby') return;
     const max = Math.max(1, game.players.length - 1);
     const n = Math.min(max, Math.max(1, parseInt(murdererCount, 10) || 1));
     game.config.murdererCount = n;
@@ -338,13 +393,16 @@ io.on('connection', (socket) => {
 
   // --- Host starts the game: assign roles, run reveal window --------------
   socket.on('start_game', () => {
-    const game = findGameBySocket(socket.id);
-    if (!game || game.hostId !== socket.id || game.phase !== 'lobby') return;
-    if (game.players.length < 3) {
-      socket.emit('toast', { type: 'error', text: 'Need at least 3 players to start.' });
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby') return;
+    const connectedCount = game.players.filter((p) => p.connected).length;
+    if (connectedCount < 3) {
+      socket.emit('toast', { type: 'error', text: 'Need at least 3 connected players to start.' });
       return;
     }
 
+    // Only deal into connected players — drop any lobby ghosts first.
+    game.players = game.players.filter((p) => p.connected);
     const murdererCount = Math.min(game.config.murdererCount, game.players.length - 1);
 
     // Shuffle (Fisher–Yates) and deal roles.
@@ -374,34 +432,46 @@ io.on('connection', (socket) => {
 
   // --- A player reports they were killed (winked) -------------------------
   socket.on('report_death', () => {
-    const game = findGameBySocket(socket.id);
-    if (!game || game.phase !== 'playing') return;
-    const p = getPlayer(game, socket.id);
-    if (!p || !p.alive) return;
-    p.alive = false;
-    pushLog(game, `💀 ${p.name} was killed. ✖️ Arms crossed.`);
-    if (!checkWin(game)) broadcast(game);
-    else broadcast(game);
+    const { game, player } = ctx();
+    if (!game || !player || game.phase !== 'playing') return;
+    if (!player.alive) return;
+    player.alive = false;
+    pushLog(game, `💀 ${player.name} was killed. ✖️ Arms crossed.`);
+    checkWin(game);
+    broadcast(game);
   });
 
-  // --- Host can also mark someone dead (backup) ---------------------------
+  // --- Host can also mark / revive someone (backup control) ---------------
   socket.on('mark_dead', ({ playerId }) => {
-    const game = findGameBySocket(socket.id);
-    if (!game || game.hostId !== socket.id || game.phase !== 'playing') return;
-    const p = getPlayer(game, playerId);
-    if (!p || !p.alive) return;
-    p.alive = false;
-    pushLog(game, `💀 ${p.name} was marked dead by the host.`);
-    if (!checkWin(game)) broadcast(game);
-    else broadcast(game);
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id) return;
+    if (game.phase !== 'playing') return;
+    const target = getPlayer(game, playerId);
+    if (!target || !target.alive) return;
+    target.alive = false;
+    pushLog(game, `💀 ${target.name} was marked out by the host.`);
+    checkWin(game);
+    broadcast(game);
+  });
+
+  // --- Host removes a player (e.g. a lobby ghost) -------------------------
+  socket.on('kick_player', ({ playerId }) => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby') return;
+    const target = getPlayer(game, playerId);
+    if (!target || target.id === player.id) return;
+    if (target.socketId) io.to(target.socketId).emit('kicked');
+    game.players = game.players.filter((p) => p.id !== playerId);
+    if (game.timers['rm_' + playerId]) { clearTimeout(game.timers['rm_' + playerId]); delete game.timers['rm_' + playerId]; }
+    pushLog(game, `🚫 ${target.name} was removed by the host.`);
+    broadcast(game);
   });
 
   // --- Raise hand → name ONE suspect → open an accusation round -----------
   socket.on('raise_hand', ({ suspectId }) => {
-    const game = findGameBySocket(socket.id);
-    if (!game || game.phase !== 'playing') return;
-    const accuser = getPlayer(game, socket.id);
-    if (!accuser || !accuser.alive) return;
+    const { game, player: accuser } = ctx();
+    if (!game || !accuser || game.phase !== 'playing') return;
+    if (!accuser.alive) return;
     const suspect = getPlayer(game, suspectId);
     if (!suspect || !suspect.alive || suspect.id === accuser.id) {
       socket.emit('toast', { type: 'error', text: 'Pick a living player other than yourself to accuse.' });
@@ -425,10 +495,9 @@ io.on('connection', (socket) => {
 
   // --- Respond to the join prompt (yes/no) --------------------------------
   socket.on('join_vote', ({ join }) => {
-    const game = findGameBySocket(socket.id);
-    if (!game || game.phase !== 'accusation' || !game.round) return;
-    const p = getPlayer(game, socket.id);
-    if (!p || !p.alive) return;
+    const { game, player: p } = ctx();
+    if (!game || !p || game.phase !== 'accusation' || !game.round) return;
+    if (!p.alive) return;
     // The accuser and the accused don't vote on this accusation.
     if (p.id === game.round.accuserId || p.id === game.round.suspectId) return;
     if (game.round.responded.includes(p.id)) return;
@@ -444,9 +513,15 @@ io.on('connection', (socket) => {
 
   // --- Host resets to a fresh lobby (same players, new game) --------------
   socket.on('play_again', () => {
-    const game = findGameBySocket(socket.id);
-    if (!game || game.hostId !== socket.id) return;
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id) return;
     clearTimers(game);
+    // Drop anyone who left during the last game.
+    game.players = game.players.filter((p) => p.connected);
+    if (!game.players.some((p) => p.id === game.hostId) && game.players[0]) {
+      game.hostId = game.players[0].id;
+      game.players[0].isHost = true;
+    }
     game.phase = 'lobby';
     game.round = null;
     game.winner = null;
@@ -457,44 +532,75 @@ io.on('connection', (socket) => {
     broadcast(game);
   });
 
-  // --- Leave / disconnect --------------------------------------------------
-  function handleLeave() {
-    const game = findGameBySocket(socket.id);
-    if (!game) return;
-    const p = getPlayer(game, socket.id);
-    if (!p) return;
+  // --- Explicit "Leave" button --------------------------------------------
+  socket.on('leave_game', () => {
+    const { game, player: p } = ctx();
+    if (!game || !p) return;
+    removePlayer(game, p, 'left');
+  });
 
-    if (game.phase === 'lobby') {
-      // Remove entirely while still in the lobby.
-      game.players = game.players.filter((x) => x.id !== socket.id);
-      pushLog(game, `➖ ${p.name} left.`);
-    } else {
-      // Mid-game: keep the seat but mark disconnected.
-      p.connected = false;
-      pushLog(game, `🔌 ${p.name} disconnected.`);
+  // --- Dropped connection (blip, lock, closed tab) ------------------------
+  socket.on('disconnect', () => {
+    const { game, player: p } = ctx();
+    if (!game || !p) return;
+    p.connected = false;
+    p.socketId = null;
+    pushLog(game, `🔌 ${p.name} lost connection.`);
+
+    // Hand off the host only if they don't return within the grace window.
+    if (game.hostId === p.id && !game.timers.hostmig) {
+      game.timers.hostmig = setTimeout(() => {
+        delete game.timers.hostmig;
+        const cur = getPlayer(game, p.id);
+        if (game.hostId !== p.id || (cur && cur.connected)) return; // came back / changed
+        const next = game.players.find((x) => x.connected);
+        if (next) {
+          game.hostId = next.id;
+          next.isHost = true;
+          if (cur) cur.isHost = false;
+          pushLog(game, `👑 ${next.name} is now the host.`);
+          broadcast(game);
+        }
+      }, HOST_GRACE_MS);
     }
 
-    // Host migration: hand the host role to the next connected player.
-    if (game.hostId === socket.id) {
-      const next = game.players.find((x) => x.connected && x.id !== socket.id) || game.players.find((x) => x.id !== socket.id);
-      if (next) {
-        game.hostId = next.id;
-        next.isHost = true;
-        pushLog(game, `👑 ${next.name} is now the host.`);
-      }
+    // In the lobby, drop a player who doesn't come back within the grace window.
+    if (game.phase === 'lobby' && !game.timers['rm_' + p.id]) {
+      game.timers['rm_' + p.id] = setTimeout(() => {
+        delete game.timers['rm_' + p.id];
+        const cur = getPlayer(game, p.id);
+        if (cur && !cur.connected && game.phase === 'lobby') removePlayer(game, cur, 'left');
+      }, LOBBY_GRACE_MS);
     }
 
-    if (game.players.length === 0) {
-      clearTimers(game);
-      games.delete(game.code);
-      return;
-    }
+    scheduleEmptyCleanup(game);
     broadcast(game);
+  });
+});
+
+/** Remove a player from a game, migrating host and cleaning up as needed. */
+function removePlayer(game, p, verb) {
+  game.players = game.players.filter((x) => x.id !== p.id);
+  if (game.timers['rm_' + p.id]) { clearTimeout(game.timers['rm_' + p.id]); delete game.timers['rm_' + p.id]; }
+  pushLog(game, `➖ ${p.name} ${verb}.`);
+
+  if (game.hostId === p.id) {
+    const next = game.players.find((x) => x.connected) || game.players[0];
+    if (next) {
+      game.hostId = next.id;
+      next.isHost = true;
+      pushLog(game, `👑 ${next.name} is now the host.`);
+    }
   }
 
-  socket.on('leave_game', handleLeave);
-  socket.on('disconnect', handleLeave);
-});
+  if (game.players.length === 0) {
+    clearTimers(game);
+    games.delete(game.code);
+    return;
+  }
+  scheduleEmptyCleanup(game);
+  broadcast(game);
+}
 
 server.listen(PORT, () => {
   console.log(`\n  🔪 Wink Murder running at http://localhost:${PORT}\n`);

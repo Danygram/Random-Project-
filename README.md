@@ -51,8 +51,19 @@ Also deploys as-is to **Railway, Fly.io, or any Node host**.
 | Constant | Default | Meaning |
 |----------|---------|---------|
 | `REVEAL_SECONDS` | 15 | Silent role-peek window |
-| `JOIN_SECONDS` | 20 | "Join the vote?" window |
-| `VOTE_SECONDS` | 25 | Voting window |
+| `JOIN_SECONDS` | 20 | "Join the accusation?" window |
 | `MAX_PLAYERS` | 30 | Players per game |
+| `HOST_GRACE_MS` | 15000 | Grace before a dropped host is handed off |
+| `LOBBY_GRACE_MS` | 45000 | Grace before a dropped lobby player is removed |
+| `EMPTY_GRACE_MS` | 180000 | Grace before an empty game is deleted |
 
-Minimum 3 players to start. Host migrates automatically if the host disconnects.
+The three grace values are also read from env vars of the same name.
+
+### Connection resilience
+
+Each player gets a **stable token** (stored in the browser), so a dropped socket — screen lock, tab switch, network blip, or a full page reload — **reclaims the same seat** instead of vanishing. Players no longer "randomly quit."
+
+- Minimum **3 connected players** to start (lobby ghosts are dropped at start).
+- If the **host** drops, the game isn't orphaned: it hands the host role to another connected player after a short grace (and the original host keeps it if they return in time).
+- When **everyone** has been disconnected past the grace window, the game is deleted automatically — no orphan rooms.
+- The host can **remove** a player from the lobby with the ✕ on their card.
