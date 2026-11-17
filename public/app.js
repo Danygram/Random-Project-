@@ -2,7 +2,8 @@
 (function () {
   const socket = io();
   const $ = (id) => document.getElementById(id);
-  const screens = ['home', 'lobby', 'reveal', 'play', 'accuse', 'imp-words', 'imp-play', 'imp-vote', 'end'];
+  const screens = ['home', 'lobby', 'reveal', 'play', 'accuse', 'imp-words', 'imp-play', 'imp-vote',
+    'mafia-assign', 'mafia-reveal', 'mafia-night', 'mafia-doctor', 'mafia-day', 'mafia-vote', 'end'];
 
   let state = null;        // latest game state from server
   let revealFlipped = false;
@@ -203,6 +204,28 @@
   $('btn-proceed-vote').onclick = () => { if (confirm('Proceed to voting now?')) socket.emit('imp_proceed_to_voting'); };
   $('btn-end-voting').onclick = () => { if (confirm('End voting and reveal the result?')) socket.emit('imp_end_voting'); };
 
+  // ---------------- mafia ----------------
+  document.querySelector('#game-select .mode-tab[data-mode="mafia"]') && (document.querySelector('#game-select .mode-tab[data-mode="mafia"]').onclick = () => socket.emit('set_mode', { mode: 'mafia' }));
+  $('btn-mafia-setup').onclick = () => socket.emit('start_mafia_setup');
+  $('mafia-online-toggle').onchange = (e) => socket.emit('set_mafia_online', { online: e.target.checked });
+  $('btn-start-mafia').onclick = () => {
+    const m = state.mafia;
+    if (m.assignedCounts.mafia > m.recommendedMafia) {
+      if (!confirm(`You've set ${m.assignedCounts.mafia} mafia (suggested: ${m.recommendedMafia}). The town will be small — are you sure?`)) return;
+    }
+    socket.emit('start_mafia');
+  };
+  $('btn-begin-night').onclick = () => socket.emit('mafia_begin_night');
+  $('mafia-card').onclick = () => { impFlipped = !impFlipped; $('mafia-card').classList.toggle('flipped', impFlipped); };
+  $('btn-to-doctor').onclick = () => socket.emit('mafia_to_doctor');
+  $('btn-resolve-night').onclick = () => socket.emit('mafia_resolve_night');
+  $('btn-start-vote').onclick = () => { if (confirm('Open the day vote?')) socket.emit('mafia_start_vote'); };
+  $('btn-end-dayvote').onclick = () => socket.emit('mafia_end_vote');
+  let timerPick = 150;
+  $('timer-plus').onclick = () => { timerPick = Math.min(600, timerPick + 30); $('timer-val').textContent = timerPick; };
+  $('timer-minus').onclick = () => { timerPick = Math.max(15, timerPick - 30); $('timer-val').textContent = timerPick; };
+  $('btn-start-timer').onclick = () => socket.emit('mafia_start_timer', { duration: timerPick });
+
   // ---------------- end ----------------
   $('btn-again').onclick = () => socket.emit('play_again');
   $('btn-home').onclick = () => { socket.emit('leave_game'); clearSession(); location.reload(); };
@@ -238,6 +261,12 @@
       case 'imp_words': renderImpWords(); show('imp-words'); break;
       case 'imp_play': renderImpPlay(); show('imp-play'); break;
       case 'imp_vote': renderImpVote(); show('imp-vote'); break;
+      case 'mafia_assign': renderMafiaAssign(); show('mafia-assign'); break;
+      case 'mafia_reveal': renderMafiaReveal(); show('mafia-reveal'); break;
+      case 'mafia_night': renderMafiaNight(); show('mafia-night'); break;
+      case 'mafia_doctor': renderMafiaDoctor(); show('mafia-doctor'); break;
+      case 'mafia_day': renderMafiaDay(); show('mafia-day'); break;
+      case 'mafia_vote': renderMafiaVote(); show('mafia-vote'); break;
       case 'ended': renderEnd(); show('end'); break;
       default: show('home');
     }
@@ -276,6 +305,7 @@
     revealFlipped = false; impFlipped = false;
     $('role-card').classList.remove('flipped');
     $('imp-card').classList.remove('flipped');
+    $('mafia-card').classList.remove('flipped');
     $('lobby-code').textContent = state.code;
     const host = amHost();
     $('lobby-players').innerHTML = state.players.map((p) => playerCard(p, { kickable: host && !p.you })).join('');
@@ -301,13 +331,31 @@
       document.querySelectorAll('#game-select .mode-tab').forEach((el) => el.classList.toggle('active', el.dataset.mode === mode));
       $('wink-config').classList.toggle('hidden', mode !== 'wink');
       $('imp-config').classList.toggle('hidden', mode !== 'impostor');
+      $('mafia-config').classList.toggle('hidden', mode !== 'mafia');
       if (mode === 'wink') renderWinkConfig(n);
-      else renderImpConfig(n);
+      else if (mode === 'impostor') renderImpConfig(n);
+      else renderMafiaLobby(n);
     } else {
-      $('waiting-note').textContent = mode === 'impostor'
-        ? 'Host is setting up 🕵️ Word Impostor…'
-        : 'Host is setting up 🔪 Wink Murder…';
+      $('waiting-note').textContent = { wink: 'Host is setting up 🔪 Wink Murder…', impostor: 'Host is setting up 🕵️ Word Impostor…', mafia: 'Host is setting up 🎭 Mafia…' }[mode] || 'Waiting for the host…';
     }
+  }
+
+  function renderMafiaLobby(n) {
+    const m = state.mafia;
+    const modId = m.moderatorId;
+    $('mod-grid').innerHTML = state.players.map((p) =>
+      `<div class="mod-chip ${modId === p.id ? 'sel' : ''}" data-mod="${p.id}"><span class="dot" style="width:16px;height:16px;background:${p.color ? p.color.hex : '#888'}"></span>${escapeHtml(p.name)}${p.you ? ' (you)' : ''}</div>`
+    ).join('');
+    $('mod-grid').querySelectorAll('.mod-chip').forEach((el) => {
+      el.onclick = () => socket.emit('set_moderator', { moderatorId: el.dataset.mod });
+    });
+    const players = modId ? n - 1 : n;
+    $('mafia-lobby-hint').textContent = !modId
+      ? 'Tap a player to make them the moderator.'
+      : players < 4
+        ? `Need ${4 - players} more player${4 - players > 1 ? 's' : ''} besides the moderator.`
+        : `Moderator: ${escapeHtml(m.moderatorName || '')}. ${players} players ready.`;
+    $('btn-mafia-setup').disabled = !modId || players < 4;
   }
 
   function renderWinkConfig(n) {
@@ -491,9 +539,164 @@
     document.querySelectorAll('#screen-imp-vote .host-only').forEach((el) => el.classList.toggle('hidden', !host));
   }
 
+  // ---- mafia helpers ----
+  const modId = () => state.mafia && state.mafia.moderatorId;
+  const nonModPlayers = () => state.players.filter((p) => p.id !== modId());
+  const aliveNonMod = () => nonModPlayers().filter((p) => p.alive);
+  function buildPickGrid(id, candidates, selectedId, onPick) {
+    const el = $(id);
+    el.innerHTML = candidates.map((p) => playerCard(p, { selectable: true })).join('');
+    el.querySelectorAll('.player.selectable').forEach((n) => {
+      if (n.dataset.id === selectedId) n.classList.add('you');
+      n.onclick = () => onPick(n.dataset.id);
+    });
+  }
+  const ROLE_META = {
+    mafia: { emoji: '🔪', name: 'MAFIA', cls: 'mafia', desc: 'Kill one person each night. Blend in by day. Win when mafia equal the town.' },
+    doctor: { emoji: '🩺', name: 'DOCTOR', cls: 'doctor', desc: 'Each night, choose one person to save from the mafia.' },
+    villager: { emoji: '🧑‍🌾', name: 'VILLAGER', cls: 'villager', desc: 'No powers — use your wits. Find the mafia and vote them out.' },
+  };
+
+  function renderMafiaAssign() {
+    const m = state.mafia;
+    $('mafia-assign-mod').classList.toggle('hidden', !m.isModerator);
+    $('mafia-assign-wait').classList.toggle('hidden', m.isModerator);
+    $('mafia-assign-sub').textContent = m.isModerator ? 'Set each player\'s role. Exactly 1 doctor, at least 1 mafia.' : '';
+    if (!m.isModerator) return;
+    const roles = m.roles || {};
+    $('assign-list').innerHTML = nonModPlayers().map((p) => {
+      const r = roles[p.id] || '';
+      const opt = (v, label) => `<option value="${v}" ${r === v ? 'selected' : ''}>${label}</option>`;
+      return `<div class="assign-row">
+        <span class="dot" style="background:${p.color ? p.color.hex : '#888'}"></span>
+        <span class="pname">${escapeHtml(p.name)}</span>
+        <select class="${r}" data-pid="${p.id}">
+          ${opt('', '—')}${opt('villager', 'Villager')}${opt('mafia', 'Mafia')}${opt('doctor', 'Doctor')}
+        </select>
+      </div>`;
+    }).join('');
+    $('assign-list').querySelectorAll('select').forEach((sel) => {
+      sel.onchange = () => socket.emit('assign_role', { playerId: sel.dataset.pid, role: sel.value });
+    });
+    $('mafia-online-toggle').checked = !!m.online;
+    const c = m.assignedCounts;
+    $('assign-counts').textContent = `${c.mafia} mafia · ${c.doctor} doctor · ${c.villager} villager · ${c.unassigned} unassigned. Suggested mafia: ${m.recommendedMafia}.`;
+    $('btn-start-mafia').disabled = c.unassigned > 0 || c.mafia < 1 || c.doctor !== 1;
+  }
+
+  function renderMafiaReveal() {
+    const m = state.mafia;
+    const isMod = m.isModerator;
+    $('mafia-reveal-cardwrap').classList.toggle('hidden', isMod);
+    $('mafia-reveal-mod').classList.toggle('hidden', !isMod);
+    $('mafia-offline-msg').classList.toggle('hidden', m.online || isMod);
+
+    if (isMod) {
+      $('mafia-reveal-title').textContent = 'Roles are set';
+      const roles = m.roles || {};
+      $('mafia-reveal-roster').innerHTML = nonModPlayers().map((p) =>
+        `${escapeHtml(p.name)}: <b>${(roles[p.id] || '—')}</b>`).join(' &nbsp;·&nbsp; ');
+      $('btn-begin-night').classList.toggle('hidden', !m.online);
+      if (!m.online) $('mafia-reveal-roster').innerHTML += '<br><br>🎉 Offline mode — run the game out loud. The players have their roles.';
+    } else {
+      $('mafia-reveal-title').textContent = m.online ? 'Your role' : 'Your role (offline game)';
+      const meta = ROLE_META[m.yourRole] || ROLE_META.villager;
+      $('mafia-card-front').className = 'role-face role-front ' + meta.cls;
+      $('mafia-emoji').textContent = meta.emoji;
+      $('mafia-role-name').textContent = meta.name;
+      let desc = meta.desc;
+      if (m.yourRole === 'mafia' && m.teammates) {
+        desc += m.teammates.length ? `<br><b>Your team: ${m.teammates.map((t) => escapeHtml(t.name)).join(', ')}</b>` : '<br><b>You are the only mafia.</b>';
+      }
+      $('mafia-role-desc').innerHTML = desc;
+    }
+  }
+
+  function renderMafiaNight() {
+    const m = state.mafia;
+    const meRole = m.yourRole;
+    $('mafia-night-sub').textContent = `Night ${m.round}`;
+    $('mafia-night-mod').classList.toggle('hidden', !m.isModerator);
+    $('mafia-night-mafia').classList.toggle('hidden', !(meRole === 'mafia' && !m.isModerator));
+    const sleep = !m.isModerator && meRole !== 'mafia';
+    $('mafia-night-sleep').classList.toggle('hidden', !sleep);
+
+    if (m.isModerator) {
+      buildPickGrid('night-target-grid', aliveNonMod(), m.nightKillId, (id) => socket.emit('mafia_set_kill', { targetId: id }));
+    } else if (meRole === 'mafia') {
+      const team = (m.teammates && m.teammates.length) ? ` Your team: ${m.teammates.map((t) => escapeHtml(t.name)).join(', ')}.` : '';
+      $('mafia-team-info').innerHTML = `You are <b>mafia</b>.${team}<br>Agree on a target out loud — the moderator sets the kill.`;
+    }
+  }
+
+  function renderMafiaDoctor() {
+    const m = state.mafia;
+    const amDoctorAlive = m.yourRole === 'doctor' && (me() && me().alive);
+    $('mafia-doctor-self').classList.toggle('hidden', !amDoctorAlive);
+    $('mafia-doctor-mod').classList.toggle('hidden', !m.isModerator);
+    $('mafia-doctor-sleep').classList.toggle('hidden', m.isModerator || amDoctorAlive);
+    if (amDoctorAlive) {
+      buildPickGrid('doctor-target-grid', aliveNonMod(), m.doctorSaveId, (id) => socket.emit('doctor_save', { targetId: id }));
+    }
+    if (m.isModerator) {
+      const saveName = m.doctorSaveId ? (state.players.find((p) => p.id === m.doctorSaveId) || {}).name : null;
+      const hasDoctor = aliveNonMod().some((p) => (m.roles || {})[p.id] === 'doctor');
+      $('doctor-status').textContent = !hasDoctor ? 'No doctor alive — just wake everyone.' : saveName ? `Doctor is saving ${saveName}.` : 'Waiting for the doctor to choose…';
+    }
+  }
+
+  function renderMafiaDay() {
+    const m = state.mafia;
+    const ann = m.lastNight;
+    $('mafia-day-announce').textContent = !ann ? '' : ann.saved ? '🛡️ The doctor made a save — no one died!' : `💀 ${ann.killedName} was killed in the night.`;
+    $('mafia-day-title').textContent = `☀️ Day ${m.round}`;
+    $('mafia-day-players').innerHTML = nonModPlayers().map((p) => playerCard(p)).join('');
+    $('mafia-day-mod').classList.toggle('hidden', !m.isModerator);
+    $('mafia-day-wait').textContent = m.isModerator ? '' : (m.timerEndsAt ? 'Discuss!' : 'Discuss! The moderator will start the vote.');
+    $('timer-val').textContent = timerPick;
+  }
+
+  function renderMafiaVote() {
+    const m = state.mafia;
+    const alive = me() && me().alive && !m.isModerator;
+    $('mafia-vote-sub').textContent = `${m.voteCount}/${aliveNonMod().length} voted.`;
+    buildPickGrid('mafia-vote-grid', aliveNonMod(), m.yourVote, (id) => { if (alive) socket.emit('mafia_day_vote', { targetId: id }); });
+    $('mafia-vote-progress').textContent = m.isModerator ? 'You are the moderator — tap End voting when ready.' : alive ? (m.youVoted ? 'Voted — tap another to change.' : 'Tap who to eliminate.') : 'You are out — watching.';
+    $('mafia-vote-mod').classList.toggle('hidden', !m.isModerator);
+  }
+
+  function renderMafiaEnd() {
+    const w = state.winner; // 'town' | 'mafia'
+    const m = state.mafia;
+    $('end-hero').className = 'end-hero ' + (w === 'town' ? 'innocents' : 'murderers');
+    $('end-emoji').textContent = w === 'town' ? '🎉' : '🔪';
+    $('end-title').textContent = w === 'town' ? 'Town Wins!' : 'Mafia Win!';
+    $('end-reason').textContent = w === 'town' ? 'All mafia were eliminated.' : 'Mafia reached the town\'s numbers.';
+    const roles = m.roles || {};
+    let html = `<div class="reveal-word-card"><div class="sub">🎙️ Moderator: <b>${escapeHtml(m.moderatorName || '—')}</b></div></div>`;
+    html += nonModPlayers().map((p) => {
+      const r = roles[p.id] || 'villager';
+      const meta = ROLE_META[r];
+      return `<div class="tally-row">
+        <span class="dot" style="width:16px;height:16px;background:${p.color ? p.color.hex : '#888'}"></span>
+        <span>${escapeHtml(p.name)}${p.alive ? '' : ' 💀'}</span>
+        <span class="votes">${meta.emoji} ${meta.name.charAt(0) + meta.name.slice(1).toLowerCase()}</span>
+      </div>`;
+    }).join('');
+    $('end-mafia-reveal').innerHTML = html;
+    $('end-mafia-reveal').classList.remove('hidden');
+    $('end-players').classList.add('hidden');
+    const host = amHost();
+    document.querySelectorAll('#screen-end .host-only').forEach((el) => el.classList.toggle('hidden', !host));
+    document.querySelectorAll('#screen-end .waiting-only').forEach((el) => el.classList.toggle('hidden', host));
+  }
+
   // ---- end ----
   function renderEnd() {
+    $('end-impostor-reveal').classList.add('hidden');
+    $('end-mafia-reveal').classList.add('hidden');
     if (state.mode === 'impostor') return renderImpEnd();
+    if (state.mode === 'mafia') return renderMafiaEnd();
     $('end-impostor-reveal').classList.add('hidden');
     $('end-players').classList.remove('hidden');
     const w = state.winner;
@@ -552,7 +755,13 @@
         updateRing($('reveal-timer'), state.revealEndsAt, 15);
       } else if (state.phase === 'accusation' && state.round && state.round.endsAt) {
         updateRing($('accuse-timer'), state.round.endsAt, 20);
+      } else if (state.phase === 'mafia_day' && state.mafia && state.mafia.timerEndsAt) {
+        const ring = $('mafia-day-timer');
+        ring.classList.remove('hidden');
+        updateRing(ring, state.mafia.timerEndsAt, state.mafia.timerDuration || 150);
+        if (state.mafia.timerEndsAt - Date.now() <= 0) ring.classList.add('hidden');
       } else {
+        if (state.phase === 'mafia_day') $('mafia-day-timer').classList.add('hidden');
         return; // nothing to animate
       }
       timerRAF = requestAnimationFrame(tick);

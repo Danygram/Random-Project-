@@ -52,9 +52,10 @@
       <!-- HOST: pick which game -->
       <div class="host-only" id="game-select">
         <div class="eyebrow" style="margin-bottom:8px">Choose game</div>
-        <div class="mode-tabs">
+        <div class="mode-tabs stack">
           <button class="mode-tab" data-mode="wink">🔪 Wink Murder</button>
           <button class="mode-tab" data-mode="impostor">🕵️ Word Impostor</button>
+          <button class="mode-tab" data-mode="mafia">🎭 Mafia</button>
         </div>
       </div>
 
@@ -112,7 +113,116 @@
         </div>
       </div>
 
+      <!-- HOST: Mafia config -->
+      <div class="card host-only" id="mafia-config">
+        <span class="field-label">Pick a moderator (runs the game, doesn't play)</span>
+        <div class="mod-grid" id="mod-grid"></div>
+        <p class="muted small" id="mafia-lobby-hint"></p>
+        <button class="btn primary big" id="btn-mafia-setup">Set up roles →</button>
+      </div>
+
       <div class="muted center waiting-only" id="waiting-note">Waiting for the host to start…</div>
+    </section>
+
+    <!-- =================== MAFIA: ROLE ASSIGNMENT =================== -->
+    <section class="screen" id="screen-mafia-assign">
+      <div class="reveal-head center">
+        <h2 id="mafia-assign-title">Assign roles</h2>
+        <p class="muted" id="mafia-assign-sub"></p>
+      </div>
+      <div id="mafia-assign-mod">
+        <div id="assign-list"></div>
+        <div class="card">
+          <label class="toggle-row"><span>Play online (app runs the night/day)</span><input type="checkbox" id="mafia-online-toggle" /></label>
+          <p class="muted small" id="assign-counts"></p>
+          <button class="btn primary big" id="btn-start-mafia">Start game</button>
+        </div>
+      </div>
+      <div id="mafia-assign-wait" class="hidden muted center">The moderator is assigning roles…</div>
+    </section>
+
+    <!-- =================== MAFIA: REVEAL =================== -->
+    <section class="screen" id="screen-mafia-reveal">
+      <div class="reveal-head center"><h2 id="mafia-reveal-title">Your role</h2></div>
+      <div class="role-card-wrap" id="mafia-reveal-cardwrap">
+        <div class="role-card" id="mafia-card">
+          <div class="role-face role-back"><div class="q">?</div><div class="tap-hint">Tap to reveal</div></div>
+          <div class="role-face role-front" id="mafia-card-front">
+            <div class="role-emoji" id="mafia-emoji">🎭</div>
+            <div class="role-name" id="mafia-role-name">—</div>
+            <div class="role-desc" id="mafia-role-desc"></div>
+          </div>
+        </div>
+      </div>
+      <div id="mafia-reveal-mod" class="card host-only hidden">
+        <p class="muted small" id="mafia-reveal-roster"></p>
+        <button class="btn primary big" id="btn-begin-night">Begin night 🌙</button>
+      </div>
+      <div id="mafia-offline-msg" class="hidden">
+        <div class="dead-banner"><div class="dead-emoji">🎉</div><div>Happy playing offline! The moderator runs the game out loud — no phones needed from here.</div></div>
+      </div>
+    </section>
+
+    <!-- =================== MAFIA: NIGHT =================== -->
+    <section class="screen" id="screen-mafia-night">
+      <div class="reveal-head center"><h2 id="mafia-night-title">🌙 Night</h2><p class="muted" id="mafia-night-sub"></p></div>
+      <div id="mafia-night-mod" class="hidden">
+        <p class="center">Tap the mafia's kill target.</p>
+        <div class="players-grid" id="night-target-grid"></div>
+        <button class="btn primary big" id="btn-to-doctor">Doctor's turn →</button>
+      </div>
+      <div id="mafia-night-mafia" class="hidden">
+        <div class="dead-banner"><div class="dead-emoji">🔪</div><div id="mafia-team-info">You are mafia.</div></div>
+      </div>
+      <div id="mafia-night-sleep" class="hidden">
+        <div class="dead-banner"><div class="dead-emoji">😴</div><div>Night. Close your eyes…</div></div>
+      </div>
+    </section>
+
+    <!-- =================== MAFIA: DOCTOR =================== -->
+    <section class="screen" id="screen-mafia-doctor">
+      <div class="reveal-head center"><h2>🩺 Doctor</h2></div>
+      <div id="mafia-doctor-self" class="hidden">
+        <p class="center">Who do you want to save?</p>
+        <div class="players-grid" id="doctor-target-grid"></div>
+      </div>
+      <div id="mafia-doctor-mod" class="hidden">
+        <p class="muted center small" id="doctor-status"></p>
+        <button class="btn primary big" id="btn-resolve-night">Wake everyone ☀️</button>
+      </div>
+      <div id="mafia-doctor-sleep" class="hidden"><div class="dead-banner"><div class="dead-emoji">😴</div><div>Still night. Keep your eyes closed…</div></div></div>
+    </section>
+
+    <!-- =================== MAFIA: DAY =================== -->
+    <section class="screen" id="screen-mafia-day">
+      <div class="reveal-head center">
+        <div class="timer-ring hidden" id="mafia-day-timer">0</div>
+        <h2 id="mafia-day-title">☀️ Day</h2>
+        <p class="muted" id="mafia-day-announce"></p>
+      </div>
+      <div class="players-grid compact" id="mafia-day-players"></div>
+      <div id="mafia-day-mod" class="card host-only hidden">
+        <label class="field"><span>Discussion timer (seconds)</span>
+          <div class="stepper">
+            <button class="btn step" id="timer-minus">−</button>
+            <div class="stepper-val" id="timer-val">150</div>
+            <button class="btn step" id="timer-plus">+</button>
+          </div>
+        </label>
+        <button class="btn big" id="btn-start-timer">Start timer</button>
+        <button class="btn primary big" id="btn-start-vote">Start vote 🗳️</button>
+      </div>
+      <p class="muted center small" id="mafia-day-wait"></p>
+    </section>
+
+    <!-- =================== MAFIA: VOTE =================== -->
+    <section class="screen" id="screen-mafia-vote">
+      <div class="accuse-head center"><h2>🗳️ Vote to eliminate</h2><p class="muted" id="mafia-vote-sub"></p></div>
+      <div class="players-grid" id="mafia-vote-grid"></div>
+      <p class="muted center small" id="mafia-vote-progress"></p>
+      <div class="card host-only" id="mafia-vote-mod">
+        <button class="btn primary big" id="btn-end-dayvote">End voting</button>
+      </div>
     </section>
 
     <!-- =================== IMPOSTOR: WORD SUBMISSION =================== -->
@@ -264,6 +374,7 @@
         <p id="end-reason" class="muted"></p>
       </div>
       <div id="end-impostor-reveal" class="hidden"></div>
+      <div id="end-mafia-reveal" class="hidden"></div>
       <div class="players-grid reveal-all" id="end-players"></div>
       <button class="btn primary big host-only" id="btn-again">Play again (same crew)</button>
       <button class="btn big waiting-only" id="btn-home">Back to home</button>

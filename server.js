@@ -125,15 +125,32 @@ function defaultImpostor() {
   };
 }
 
+function defaultMafia() {
+  return {
+    moderatorId: null,       // pid of the non-playing narrator
+    online: true,            // online loop vs offline (app steps aside)
+    assignments: {},         // { pid: 'mafia'|'doctor'|'villager' } for non-moderator players
+    round: 1,                // night/day number
+    nightKillId: null,       // mafia's target this night (moderator picks)
+    doctorSaveId: null,      // doctor's save this night
+    timerEndsAt: null,       // discussion timer
+    timerDuration: 150,
+    votes: {},               // day vote { voterPid: targetPid }
+    lastNight: null,         // { killedName, saved }
+    lastVote: null,          // { eliminatedName, tie }
+  };
+}
+
 function newGame(hostPid) {
   return {
     code: makeCode(),
     hostId: hostPid,               // player.id (stable pid) of the host
-    mode: 'wink',                  // 'wink' | 'impostor'
+    mode: 'wink',                  // 'wink' | 'impostor' | 'mafia'
     phase: 'lobby',                // lobby | (wink) reveal/playing/accusation | (imp) imp_words/imp_play/imp_vote | ended
     players: [],                   // Player[]
     config: { murdererCount: 1 },
     impostor: defaultImpostor(),   // Word Impostor state
+    mafia: defaultMafia(),         // Mafia state
     revealEndsAt: null,
     round: null,                   // accusation round state (wink)
     winner: null,                  // wink: 'innocents'|'murderers' · impostor: 'crew'|'impostors'
@@ -195,6 +212,7 @@ function viewFor(game, viewerId) {
     youId: viewerId,
     config: game.config,
     impostor: impostorView(game, viewerId),
+    mafia: mafiaView(game, viewerId),
     revealEndsAt: game.revealEndsAt,
     winner: game.winner,
     log: game.log,
@@ -289,6 +307,58 @@ function impostorView(game, viewerId) {
   return base;
 }
 
+/** Per-viewer view of the Mafia state (moderator sees all; players see only their own role). */
+function mafiaView(game, viewerId) {
+  if (game.mode !== 'mafia') return null;
+  const m = game.mafia;
+  const ended = game.phase === 'ended';
+  const isMod = viewerId === m.moderatorId;
+  const players = game.players.filter((p) => p.id !== m.moderatorId);   // non-moderator players
+  const alive = players.filter((p) => p.alive);
+  const mafiaAlive = alive.filter((p) => m.assignments[p.id] === 'mafia').length;
+  const myRole = m.assignments[viewerId] || null;
+
+  const assignedCounts = { mafia: 0, doctor: 0, villager: 0, unassigned: 0 };
+  players.forEach((p) => { const r = m.assignments[p.id]; if (r) assignedCounts[r]++; else assignedCounts.unassigned++; });
+
+  const base = {
+    moderatorId: m.moderatorId,
+    moderatorName: m.moderatorId ? (getPlayer(game, m.moderatorId)?.name || null) : null,
+    isModerator: isMod,
+    online: m.online,
+    round: m.round,
+    playerCount: players.length,
+    recommendedMafia: Math.max(1, Math.round(players.length / 3.5)),
+    assignedCounts,
+    counts: { alive: alive.length, mafiaAlive, townAlive: alive.length - mafiaAlive },
+    timerEndsAt: m.timerEndsAt,
+    timerDuration: m.timerDuration,
+    lastNight: m.lastNight,
+    lastVote: m.lastVote,
+    voteCount: Object.keys(m.votes).length,
+    youVoted: Object.prototype.hasOwnProperty.call(m.votes, viewerId),
+    yourVote: m.votes[viewerId] || null,
+    youAreModerator: isMod,
+  };
+
+  // Your own role (not for the moderator, who has none)
+  if (!isMod) base.yourRole = myRole;
+  // Mafia teammates see each other
+  if (!isMod && myRole === 'mafia') {
+    base.teammates = players.filter((p) => m.assignments[p.id] === 'mafia' && p.id !== viewerId).map((p) => ({ id: p.id, name: p.name }));
+  }
+  // The doctor (and moderator) can see the current save
+  if (isMod || myRole === 'doctor') base.doctorSaveId = m.doctorSaveId;
+  // The moderator sees the mafia's chosen kill
+  if (isMod) base.nightKillId = m.nightKillId;
+  // Moderator (always) and everyone (at end) see the full role map
+  if (isMod || ended) {
+    base.roles = {};
+    players.forEach((p) => { base.roles[p.id] = m.assignments[p.id] || null; });
+  }
+  return base;
+}
+
 /** Emit a personalized state to every connected socket in the game room. */
 function broadcast(game) {
   for (const p of game.players) {
@@ -355,10 +425,57 @@ function endGame(game, winner, reason) {
   game.winner = winner;
   game.round = null;
   game.revealEndsAt = null;
-  const goodSide = winner === 'innocents' || winner === 'crew';
-  const label = { innocents: 'Innocents', murderers: 'Murderers', crew: 'Crew', impostors: 'Impostors' }[winner] || winner;
+  const goodSide = winner === 'innocents' || winner === 'crew' || winner === 'town';
+  const label = { innocents: 'Innocents', murderers: 'Murderers', crew: 'Crew', impostors: 'Impostors', town: 'Town', mafia: 'Mafia' }[winner] || winner;
   pushLog(game, `🏁 ${label} win — ${reason}`);
   emitSfx(game, goodSide ? 'win_innocents' : 'win_murderers');
+}
+
+// ---------------------------------------------------------------------------
+// Mafia logic
+// ---------------------------------------------------------------------------
+
+function checkMafiaWin(game) {
+  const m = game.mafia;
+  const alive = game.players.filter((p) => p.alive && p.id !== m.moderatorId);
+  const mafiaAlive = alive.filter((p) => m.assignments[p.id] === 'mafia').length;
+  const townAlive = alive.length - mafiaAlive;
+  if (mafiaAlive === 0) { endGame(game, 'town', 'All mafia have been eliminated.'); return true; }
+  if (mafiaAlive >= townAlive) { endGame(game, 'mafia', 'Mafia now equal or outnumber the town.'); return true; }
+  return false;
+}
+
+function resolveMafiaDayVote(game) {
+  const m = game.mafia;
+  const tally = {};
+  for (const t of Object.values(m.votes)) tally[t] = (tally[t] || 0) + 1;
+  let top = null, topN = -1, tie = false;
+  for (const [pid, n] of Object.entries(tally)) {
+    if (n > topN) { top = pid; topN = n; tie = false; }
+    else if (n === topN) { tie = true; }
+  }
+
+  if (!top || topN <= 0 || tie) {
+    m.lastVote = { eliminatedName: null, tie: true };
+    pushLog(game, '🗳️ The vote was tied — no one is eliminated today.');
+  } else {
+    const p = getPlayer(game, top);
+    if (p) p.alive = false;
+    const role = m.assignments[top];
+    m.lastVote = { eliminatedName: p ? p.name : null, tie: false, role };
+    pushLog(game, `🗳️ ${p ? p.name : 'Someone'} was voted out — they were a ${role === 'mafia' ? 'MAFIA 🔪' : role === 'doctor' ? 'Doctor 🩺' : 'Villager 🧑‍🌾'}.`);
+    emitSfx(game, role === 'mafia' ? 'murderer_caught' : 'death');
+  }
+
+  m.votes = {};
+  if (checkMafiaWin(game)) { broadcast(game); return; }
+  m.round += 1;
+  m.nightKillId = null;
+  m.doctorSaveId = null;
+  m.timerEndsAt = null;
+  game.phase = 'mafia_night';
+  pushLog(game, `🌙 Night ${m.round} falls. Everyone, close your eyes.`);
+  broadcast(game);
 }
 
 // ---------------------------------------------------------------------------
@@ -714,6 +831,10 @@ io.on('connection', (socket) => {
     const cfg = game.impostor;
     cfg.word = null; cfg.wordAuthor = null; cfg.category = null;
     cfg.impostors = []; cfg.round = 1; cfg.votes = {}; cfg.submissions = {};
+    // Reset mafia runtime but keep the moderator + online choice.
+    const mf = game.mafia;
+    mf.assignments = {}; mf.round = 1; mf.nightKillId = null; mf.doctorSaveId = null;
+    mf.votes = {}; mf.lastNight = null; mf.lastVote = null; mf.timerEndsAt = null;
     pushLog(game, '🔄 New round — back to the lobby.');
     broadcast(game);
   });
@@ -724,7 +845,7 @@ io.on('connection', (socket) => {
   socket.on('set_mode', ({ mode }) => {
     const { game, player } = ctx();
     if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby') return;
-    if (mode !== 'wink' && mode !== 'impostor') return;
+    if (!['wink', 'impostor', 'mafia'].includes(mode)) return;
     game.mode = mode;
     broadcast(game);
   });
@@ -847,6 +968,185 @@ io.on('connection', (socket) => {
     const { game, player } = ctx();
     if (!game || !player || game.hostId !== player.id || game.phase !== 'imp_vote') return;
     resolveImpostorVote(game);
+  });
+
+  // ===================== Mafia =============================================
+
+  const isMod = (game, player) => game && player && game.mafia.moderatorId === player.id;
+
+  // Host picks the (non-playing) moderator in the lobby.
+  socket.on('set_moderator', ({ moderatorId }) => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby' || game.mode !== 'mafia') return;
+    if (moderatorId && !getPlayer(game, moderatorId)) return;
+    game.mafia.moderatorId = moderatorId || null;
+    game.mafia.assignments = {};   // reset any assignments when the moderator changes
+    broadcast(game);
+  });
+
+  // Host moves into the role-assignment screen.
+  socket.on('start_mafia_setup', () => {
+    const { game, player } = ctx();
+    if (!game || !player || game.hostId !== player.id || game.phase !== 'lobby' || game.mode !== 'mafia') return;
+    const m = game.mafia;
+    if (!m.moderatorId) { socket.emit('toast', { type: 'error', text: 'Pick a moderator first.' }); return; }
+    const nonMod = game.players.filter((p) => p.id !== m.moderatorId);
+    if (nonMod.length < 4) { socket.emit('toast', { type: 'error', text: 'Need at least 4 players besides the moderator.' }); return; }
+    m.assignments = {};
+    game.phase = 'mafia_assign';
+    pushLog(game, `🎙️ ${getPlayer(game, m.moderatorId)?.name} is the moderator.`);
+    broadcast(game);
+  });
+
+  // Moderator assigns a role to a player (dropdown).
+  socket.on('assign_role', ({ playerId, role }) => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player) || game.phase !== 'mafia_assign') return;
+    if (!['mafia', 'doctor', 'villager', ''].includes(role)) return;
+    const target = getPlayer(game, playerId);
+    if (!target || target.id === game.mafia.moderatorId) return;
+    if (role === 'doctor') {
+      const existing = Object.entries(game.mafia.assignments).find(([pid, r]) => r === 'doctor' && pid !== playerId);
+      if (existing) { socket.emit('toast', { type: 'error', text: 'Only one doctor allowed — clear the other first.' }); return; }
+    }
+    if (role === '') delete game.mafia.assignments[playerId];
+    else game.mafia.assignments[playerId] = role;
+    broadcast(game);
+  });
+
+  // Moderator toggles online / offline.
+  socket.on('set_mafia_online', ({ online }) => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player)) return;
+    if (!['mafia_assign', 'lobby'].includes(game.phase)) return;
+    game.mafia.online = !!online;
+    broadcast(game);
+  });
+
+  // Moderator starts the game (client confirms the ratio warning beforehand).
+  socket.on('start_mafia', () => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player) || game.phase !== 'mafia_assign') return;
+    const m = game.mafia;
+    const nonMod = game.players.filter((p) => p.id !== m.moderatorId);
+    if (nonMod.length < 4) { socket.emit('toast', { type: 'error', text: 'Need at least 4 players.' }); return; }
+    if (nonMod.some((p) => !m.assignments[p.id])) { socket.emit('toast', { type: 'error', text: 'Assign a role to every player.' }); return; }
+    const counts = { mafia: 0, doctor: 0 };
+    nonMod.forEach((p) => { const r = m.assignments[p.id]; if (r === 'mafia') counts.mafia++; if (r === 'doctor') counts.doctor++; });
+    if (counts.mafia < 1) { socket.emit('toast', { type: 'error', text: 'Need at least 1 mafia.' }); return; }
+    if (counts.doctor !== 1) { socket.emit('toast', { type: 'error', text: 'Need exactly 1 doctor.' }); return; }
+
+    nonMod.forEach((p) => { p.alive = true; });
+    m.round = 1; m.nightKillId = null; m.doctorSaveId = null; m.votes = {}; m.lastNight = null; m.lastVote = null; m.timerEndsAt = null;
+    game.phase = 'mafia_reveal';
+    pushLog(game, `🎭 Roles assigned: ${counts.mafia} mafia, 1 doctor, ${nonMod.length - counts.mafia - 1} villagers. ${m.online ? 'Playing online.' : 'Playing offline.'}`);
+    broadcast(game);
+  });
+
+  // Moderator begins the night (online only).
+  socket.on('mafia_begin_night', () => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player) || game.phase !== 'mafia_reveal' || !game.mafia.online) return;
+    game.mafia.nightKillId = null;
+    game.mafia.doctorSaveId = null;
+    game.phase = 'mafia_night';
+    pushLog(game, `🌙 Night ${game.mafia.round} falls. Mafia, choose your target.`);
+    emitSfx(game, 'death');
+    broadcast(game);
+  });
+
+  // Moderator picks the mafia's kill target, then advances to the doctor.
+  socket.on('mafia_set_kill', ({ targetId }) => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player) || game.phase !== 'mafia_night') return;
+    const t = getPlayer(game, targetId);
+    if (!t || !t.alive || t.id === game.mafia.moderatorId) return;
+    game.mafia.nightKillId = targetId;
+    broadcast(game);
+  });
+  socket.on('mafia_to_doctor', () => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player) || game.phase !== 'mafia_night') return;
+    if (!game.mafia.nightKillId) { socket.emit('toast', { type: 'error', text: 'Pick the mafia target first.' }); return; }
+    game.phase = 'mafia_doctor';
+    pushLog(game, '🩺 Doctor, choose someone to save.');
+    broadcast(game);
+  });
+
+  // The doctor picks a save.
+  socket.on('doctor_save', ({ targetId }) => {
+    const { game, player } = ctx();
+    if (!game || !player || game.phase !== 'mafia_doctor') return;
+    if (game.mafia.assignments[player.id] !== 'doctor' || !player.alive) return;
+    const t = getPlayer(game, targetId);
+    if (!t || !t.alive || t.id === game.mafia.moderatorId) return;
+    game.mafia.doctorSaveId = targetId;
+    broadcast(game);
+  });
+
+  // Moderator wakes everyone and resolves the night.
+  socket.on('mafia_resolve_night', () => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player) || game.phase !== 'mafia_doctor') return;
+    const m = game.mafia;
+    const killed = getPlayer(game, m.nightKillId);
+    const saved = m.nightKillId && m.nightKillId === m.doctorSaveId;
+    if (killed && !saved) {
+      killed.alive = false;
+      m.lastNight = { killedName: killed.name, saved: false };
+      pushLog(game, `☀️ Morning: ${killed.name} was killed in the night.`);
+      emitSfx(game, 'death');
+    } else {
+      m.lastNight = { killedName: killed ? killed.name : null, saved: true };
+      pushLog(game, '☀️ Morning: the doctor saved the target — no one died!');
+    }
+    game.phase = 'mafia_day';
+    if (checkMafiaWin(game)) { broadcast(game); return; }
+    broadcast(game);
+  });
+
+  // Moderator starts a discussion timer.
+  socket.on('mafia_start_timer', ({ duration }) => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player) || game.phase !== 'mafia_day') return;
+    const d = Math.min(600, Math.max(15, parseInt(duration, 10) || 150));
+    game.mafia.timerDuration = d;
+    game.mafia.timerEndsAt = Date.now() + d * 1000;
+    broadcast(game);
+  });
+
+  // Moderator opens the day vote.
+  socket.on('mafia_start_vote', () => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player) || game.phase !== 'mafia_day') return;
+    game.mafia.votes = {};
+    game.mafia.timerEndsAt = null;
+    game.phase = 'mafia_vote';
+    pushLog(game, '🗳️ Day vote — choose who to eliminate.');
+    emitSfx(game, 'hand');
+    broadcast(game);
+  });
+
+  // An alive player casts a day vote.
+  socket.on('mafia_day_vote', ({ targetId }) => {
+    const { game, player } = ctx();
+    if (!game || !player || game.phase !== 'mafia_vote') return;
+    if (player.id === game.mafia.moderatorId || !player.alive) return;
+    const t = getPlayer(game, targetId);
+    if (!t || !t.alive || t.id === game.mafia.moderatorId) return;
+    game.mafia.votes[player.id] = targetId;
+    broadcast(game);
+    const aliveVoters = game.players.filter((p) => p.alive && p.id !== game.mafia.moderatorId);
+    if (aliveVoters.every((p) => Object.prototype.hasOwnProperty.call(game.mafia.votes, p.id))) {
+      resolveMafiaDayVote(game);
+    }
+  });
+
+  // Moderator ends the vote early.
+  socket.on('mafia_end_vote', () => {
+    const { game, player } = ctx();
+    if (!game || !isMod(game, player) || game.phase !== 'mafia_vote') return;
+    resolveMafiaDayVote(game);
   });
 
   // --- Explicit "Leave" button --------------------------------------------

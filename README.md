@@ -4,6 +4,7 @@ Real-time **online companions** for in-person party games. Everyone's in one roo
 
 - **🔪 Wink Murder** — a twist on Mafia (wink to kill, raise a hand to accuse).
 - **🕵️ Word Impostor** — everyone gets a secret word; one person is the impostor who gets none. Find them.
+- **🎭 Mafia** — a moderator-run night/day game with villagers, a doctor and the mafia.
 
 ---
 
@@ -49,6 +50,31 @@ Everyone gets the **same secret word** — except the **impostor(s)**, who get *
 ### Win conditions
 - **Crew win** if the single most-voted player **is an impostor**.
 - **Impostors win** on a wrong pick **or a tie**.
+
+---
+
+## Game 3 — 🎭 Mafia
+
+A classic moderator-run Mafia (a.k.a. Werewolf). Roles: **Mafia**, **Doctor**, **Villager**.
+
+### Setup
+- Host picks **Mafia**, then taps a player to be the **moderator** — a non-playing narrator who sees all roles and runs the game. Need **4+ players besides the moderator**.
+- On the setup screen the moderator assigns each player a role from a dropdown. **Exactly 1 doctor** (a second is blocked), **≥1 mafia** required. A ratio guide suggests **1 mafia per 3.5 players**; setting more pops an *"are you sure?"*.
+- Moderator picks **Online** (app runs the loop) or **Offline** (roles are dealt on phones, then *"Happy playing offline"* — the moderator narrates out loud).
+
+### Online loop (moderator-driven)
+| Step | What happens |
+|------|-------------|
+| **Reveal** | Each player taps their card to see Mafia / Doctor / Villager (mafia see their teammates). |
+| **Night** | Mafia agree out loud; the **moderator taps the kill target**. Then the **doctor** secretly picks someone to **save**. |
+| **Morning** | If the saved player was the target, **no one dies**; otherwise that player is out. |
+| **Day** | The moderator starts a **discussion timer** (default 2.5 min, adjustable), then opens the **vote**. |
+| **Vote** | Everyone alive votes; the most-voted player is eliminated (a **tie = no elimination**). |
+| **Repeat** | Back to night until a side wins. |
+
+### Win conditions
+- **Town wins** when all mafia are eliminated.
+- **Mafia win** when they **equal or outnumber** the remaining townsfolk.
 
 ## Run it
 
